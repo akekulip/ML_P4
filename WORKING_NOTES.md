@@ -94,8 +94,50 @@ the backend). The P4/BMv2 part is the deployment proof.
     3. Headline the benign and small-K regime.
 - First commit made in Philip's name only (no co-author lines, ever).
 
+## Methodology review (research-scientist agent, 2026-09-22) — adopted
+- **B1, duplicate leakage.** 59% of IID-test rows exactly matched a training feature vector
+  (ransomware 99.8%). Fix: **grouped split**, where each distinct data-plane vector is hashed to
+  exactly one pool (60/20/20). Measured afterwards: 0.5% seen.
+- **B2, closed-world replay.** Fix: a **forward** split, where pools come only from the first half
+  (by ts) of each local day and the replay covers the second halves.
+  - Injection lies entirely in the second half of 04-25, so forward mode is an **unseen-attack**
+    test for injection.
+  - Password lies almost entirely in first halves.
+- The **random** split is kept only to quantify the inflation.
+- **Days are Canberra local time** (Australia/Sydney). The phases get cleaner that way:
+
+  | Days | Traffic |
+  |---|---|
+  | 04-23..24 | scanning |
+  | 04-25 | dos + injection |
+  | 04-26 | ddos |
+  | 04-27 | password + xss |
+  | 04-28 | ransomware + backdoor |
+  | 04-29..30 | backdoor + mitm |
+
+- **Other changes adopted:**
+  - Categoricals are coded by training attack-rate rank.
+  - Added an HGB baseline and an always-attack baseline.
+  - Per-type recall is recorded.
+  - Seen vs novel test vectors are reported separately.
+  - A Bayes ceiling is computed.
+  - Pools are capped at 50% of a class (mitm).
+  - Every seed is replayed; counts are kept per hour × type for a block bootstrap.
+  - The primary interval is mean ± sd over seeds.
+  - IID metrics are also reweighted to the stream's class mix.
+- **Deferred to W3/W4:**
+  - replay-order robustness (file order, within-second shuffle, flow-end time `ts+duration`);
+  - static top-K warm-up taken from the stream, not the training mix;
+  - removing Train_Test rows from the replay as a multiset once that file arrives (it has no ts or row id).
+- **W1 pilot table above is NOT comparable to W2.** The pilot used `service`, 20k normal rows, a
+  random split and UTC days.
+- **First signal (grouped, seed 0, val).** Once duplicates are removed, deeper DTs do worse:
+  depth 6 scores 0.958 and unlimited depth 0.910. LR is weak on novel benign vectors (0.55).
+  Confirm on the test set across all seeds.
+
 ## Next action
 1. Philip: re-download `Train_Test_datasets/Train_Test_Network_dataset/train_test_network.csv` on its own, as a single file.
 2. Once it arrives: check the no-`ts` claim and 461,043 rows, match its rows against the full set
    (overlap removal), then re-run the pilot on the real training file.
-3. Philip to decide on the stream adjustments (K grid, three streams), then start W2 (RQ1 sweep with CIs).
+3. W2 is running (`experiments/run_w2_all.sh`, log `results/w2_all.log`). When it finishes, run
+   `experiments/w2_report.py`, check the tables and figures, and commit.
