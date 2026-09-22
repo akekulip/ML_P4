@@ -183,7 +183,7 @@ main_mode = "grouped" if "grouped" in MODES else MODES[0]
 rec = data[main_mode][0]
 b = rec[rec.model.isin(FAMILIES + ["DT-ccp"])]
 test, val = b[b.split == "test"], b[b.split == "val"]
-fig, axes = plt.subplots(1, 2, figsize=(7.16, 2.9), sharey=True)
+fig, axes = plt.subplots(1, 2, figsize=(7.16, 2.9), sharey=True, gridspec_kw={"wspace": 0.35})
 for ax, fs in zip(axes, ["dp", "full"]):
     t = test[test.fs == fs]
     g = t[t.model == "DT"].groupby("depth", sort=False).agg(x=("n_leaves", "mean"), y=("macro_f1", "mean"), e=("macro_f1", "std"))
@@ -191,18 +191,22 @@ for ax, fs in zip(axes, ["dp", "full"]):
     if not c.empty:
         ax.plot(c.n_leaves, c.macro_f1, color=COLORS["DT-ccp"], marker=MARKERS["DT-ccp"], ms=3, lw=1.2, label="DT, ccp pruning")
     ax.errorbar(g.x, g.y, yerr=g.e, color=COLORS["DT"], marker=MARKERS["DT"], ms=4, lw=1.5, capsize=2, label="DT, max depth")
-    for x, y, d in zip(g.x, g.y, g.index):
-        ax.annotate(f"d={d}", (x, y), textcoords="offset points", xytext=(0, 6), ha="center", fontsize=7, color="#555")
-    xmin = min(g.x.min(), c.n_leaves.min() if not c.empty else g.x.min())
-    for kind in ("RF", "HGB", "LR"):
-        y = best_rows(test, val, fs, kind).macro_f1.mean()
+    for i, (x, y, d) in enumerate(zip(g.x, g.y, g.index)):  # alternate above/below to avoid collisions
+        ax.annotate(f"d={d}", (x, y), textcoords="offset points", xytext=(0, 7 if i % 2 else -13),
+                    ha="center", fontsize=7, color="#555")
+    refs = sorted(((best_rows(test, val, fs, k).macro_f1.mean(), k) for k in ("RF", "HGB", "LR")), reverse=True)
+    label_y = []
+    for y, kind in refs:  # push labels down so near-equal reference lines stay readable
+        label_y.append(min(y, label_y[-1] - 0.012) if label_y else y)
+    for (y, kind), ly in zip(refs, label_y):
         ax.axhline(y, color=COLORS[kind], lw=1.1, ls="--")
-        ax.text(xmin, y + 0.003, f"{kind} {y:.3f}", color="#333", fontsize=7)
+        ax.annotate(f"{kind} {y:.3f}", (1.0, ly), xycoords=("axes fraction", "data"), xytext=(3, 0),
+                    textcoords="offset points", va="center", fontsize=7, color="#333")
     ax.set_xscale("log")
     ax.set(xlabel="leaves (log scale)", title=f"{FS_LABEL[fs]} (Bayes acc. ceiling {t.bayes_ceiling_test.mean():.3f})")
 axes[0].set_ylabel(f"macro-F1, IID test ({main_mode} split)")
 axes[0].legend(loc="lower right", fontsize=7, frameon=False)
-fig.tight_layout()
+fig.subplots_adjust(left=0.08, right=0.9, bottom=0.16, top=0.88, wspace=0.42)
 for ext in ("pdf", "png"):
     fig.savefig(FIG / f"w2_f1_vs_leaves.{ext}", dpi=150)
 

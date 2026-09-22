@@ -23,7 +23,8 @@ def binary_from_counts(tp, fp, fn, tn) -> dict[str, np.ndarray]:
         f1_b = 2 * prec_b * rec_b / (prec_b + rec_b)
         mcc = (tp * tn - fp * fn) / np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
     return {
-        "macro_f1": np.nan_to_num((f1_a + f1_b) / 2),
+        # an undefined per-class F1 (no predictions or no instances of that class) counts as 0
+        "macro_f1": (np.nan_to_num(f1_a) + np.nan_to_num(f1_b)) / 2,
         "mcc": np.nan_to_num(mcc),
         "attack_precision": np.nan_to_num(prec_a),
         "attack_recall": np.nan_to_num(rec_a),

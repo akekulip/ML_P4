@@ -151,6 +151,8 @@ def run_replay(keys, replay, fitted, seed, out: Path, max_chunks=None):
     for i, (chunk, hour, gidx) in enumerate(iter_replay(PQ, keys, replay, cols)):
         if max_chunks is not None and i >= max_chunks:
             break
+        if len(chunk) == 0:  # e.g. forward split: a file lying wholly in first halves of days
+            continue
         typ = chunk.type.to_numpy()
         enc_cache = {}
         for (fs_name, kind, cfg), (enc, m) in fitted.items():

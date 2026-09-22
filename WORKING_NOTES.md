@@ -20,7 +20,7 @@ the backend). The P4/BMv2 part is the deployment proof.
 
 ## Milestones
 - [ ] **W1:** repo, uv env, data download, check ts/order/overlap, locality pilot (DT depth 8, C(32)) — go/no-go
-- [ ] **W2:** RQ1 — LR/DT/RF, depth and ccp sweep, metrics with bootstrap CIs, feature ablations
+- [x] **W2 (done 2026-09-22, stand-in training pools):** RQ1 — LR/DT/RF, depth and ccp sweep, metrics with bootstrap CIs, feature ablations
 - [ ] **W3:** RQ2/RQ3 — locality metrics, Pareto frontier of F1 vs W90, drift (JS), shuffled vs chronological, per-phase windows
 - [ ] **W4:** RQ4 — cache simulator (static, LRU, LFU, decayed-LFU, oracle), K sweep, recovery time, regret, churn
 - [ ] **W5:** BMv2 — mvm.p4, controller, write-rate measurement, fidelity
@@ -135,9 +135,41 @@ the backend). The P4/BMv2 part is the deployment proof.
   depth 6 scores 0.958 and unlimited depth 0.910. LR is weak on novel benign vectors (0.55).
   Confirm on the test set across all seeds.
 
+## W2 results (2026-09-22) — full tables in `docs/results_w2.md`
+- **Leakage is large.** IID macro-F1 with data-plane features: random vs grouped split for each model
+
+  | Model | random | grouped | inflation |
+  |---|---|---|---|
+  | RF | .967 | .894 | +.074 |
+  | DT | .967 | .910 | +.057 |
+  | HGB | .962 | .925 | +.037 |
+  | LR | .866 | .860 | +.006 |
+
+- **H2 is an artifact of leakage.** On the random split, macro-F1 rises monotonically with depth
+  (.863 → .967). On the grouped split it peaks at depth 10 (.929, 439 leaves); ccp pruning reaches
+  about .93 at roughly 100 leaves, and unlimited depth falls back to .898 (1,944 leaves). On novel
+  vectors, small trees win on both accuracy and cacheability.
+- **Best models, grouped data-plane features:**
+  - HGB .925;
+  - DT: val-selected depth 6 scores .910, and depth 10 scores .929;
+  - Bayes ceiling .958.
+  - Zeek fields add about +.01. Ports lift DT to .968, and IPs plus ports reach .9999 (topology memorization).
+- **Forward (temporal) split:**
+  - Replay macro-F1: DT d12 .851 [.761, .935], RF .853, always-attack .491.
+  - **Injection is unseen in training** and is still detected at recall .64–.74.
+  - mitm recall is .40–.51 (172 training rows).
+  - Seed variance is high at depth 10 and 12 (sd up to .057).
+- **Replay vs IID.** The stream is 96% attack, so benign precision drags macro-F1 down: grouped
+  replay DT is .72–.78 against .91 IID. Reweighting IID per-type recall to the stream mix predicts this (.73).
+- **Weak classes.** Ransomware recall is .29 (grouped DT) and mitm .57. In the 10-class
+  task, ransomware is almost never identified (.008) and scanning is .64.
+
 ## Next action
 1. Philip: re-download `Train_Test_datasets/Train_Test_Network_dataset/train_test_network.csv` on its own, as a single file.
 2. Once it arrives: check the no-`ts` claim and 461,043 rows, match its rows against the full set
    (overlap removal), then re-run the pilot on the real training file.
-3. W2 is running (`experiments/run_w2_all.sh`, log `results/w2_all.log`). When it finishes, run
-   `experiments/w2_report.py`, check the tables and figures, and commit.
+3. W3 (RQ2/RQ3): locality metrics on the saved leaf streams
+   (`results/w2/{grouped,forward}/leaves/seed*_dp_DT_depth*.npy`, `replay_mask_seed*.npy`).
+   - Three orderings: file order, within-second shuffle, and flow-end time.
+   - Three streams: full, benign-only, per-phase.
+   - Pareto frontier of macro-F1 vs W90, and the ccp trees.
