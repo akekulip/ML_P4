@@ -49,12 +49,53 @@ the backend). The P4/BMv2 part is the deployment proof.
   | reuse distance | 6.3 s |
 
   At 22M that is about 3–5 minutes per LFU-family run, so the full sweep uses windows (or numba LFU).
-- **Waiting on Philip:** TON_IoT download from the official UNSW SharePoint into `data/raw/`.
-- Nothing committed yet: the repo is initialized but has no commits.
+- **Data (2026-09-22):** `Processed_datasets.zip` holds 23 network CSVs; the zip tested OK and
+  they are extracted to `data/raw/network`, then converted to `data/processed/network/*.parquet`
+  (`experiments/w1_data_audit.py`).
+  - 22,339,021 rows, 46 columns including `ts` (1 s resolution, only 392,633 distinct values, so ties are heavy).
+  - The files are contiguous in time and in order. There are only 21 within-file backsteps, fixed by a stable sort on `ts`.
+  - 869 malformed rows (`src_bytes` = "0.0.0.0", all normal) are dropped.
+  - Counts: normal 796,380 (3.6%), scanning 7.14M, ddos 6.17M, dos 3.38M, xss 2.11M,
+    password 1.72M (the literature says 1.37M, so this differs), backdoor 508k, injection 453k, ransomware 72.8k, mitm 1,052.
+  - Attacks come in day blocks:
+
+    | Days | Traffic |
+    |---|---|
+    | 04-02..04 | normal only |
+    | 04-23 | scanning |
+    | 04-24 | scanning + dos |
+    | 04-25 | ddos + dos + injection |
+    | 04-26 | ddos + password |
+    | 04-27 | password + xss |
+    | 04-28 | backdoor + ransomware |
+    | 04-29 | backdoor + mitm |
+
+    These are natural phase shifts for RQ4.
+  - **Still missing:** `train_test_network.csv`. The SharePoint throttling stub is still in Train_Test_datasets.zip.
+- **PROVISIONAL pilot** (`w1_pilot.py`, `w1_depth_probe.py`). The tree is trained on a ≤20k-per-type
+  stratified sample of the full set, those rows are removed from the replay, features are the
+  data-plane set with no IPs or ports, and the stream is replayed in time order:
+
+  | depth | leaves | macro-F1 | W90 | W99 | benign W90 | LRU K8 | benign LRU K8 |
+  |---|---|---|---|---|---|---|---|
+  | 4 | 16 | .876 | 2 | 9 | 8 | 1.000 | .998 |
+  | 8 | 124 | .921 | 3 | 25 | 24 | .994 | .917 |
+  | 12 | 319 | .949 | 11 | 58 | 46 | .977 | .825 |
+  | 16 | 552 | .958 | 15 | 87 | 55 | .969 | .806 |
+  | None | 789 | .959 | 21 | 122 | 56 | .956 | .804 |
+
+  - H1 holds: at depth 8, one leaf serves 85% of the stream. H2's shape holds too: F1 rises while the working set grows, with a knee around depth 12–16.
+  - The full stream is **flood-dominated and trivially cacheable** (K=32 LRU ≥ 99%).
+  - Capacity matters only for **small K (≤16)** and the **benign-only** stream.
+  - LRU beats the window oracle at every K, which confirms the Belady correction.
+  - Adjustments proposed:
+    1. Change the K grid to {1,2,4,8,16,32,64}.
+    2. Report every result on three streams: full, benign-only, and a flood-thinned or per-phase stream.
+    3. Headline the benign and small-K regime.
+- First commit made in Philip's name only (no co-author lines, ever).
 
 ## Next action
-1. Get the TON_IoT `Train_Test_datasets/Train_Test_Network_dataset/Train_Test_Network.csv` and the
-   `Processed_datasets/Processed_Network_dataset/*.csv` files into `data/raw/`.
-2. `head -1` both. Confirm there is no `ts` in Train_Test and that `ts` exists in the processed
-   files. Check `ts` monotonicity.
-3. Run the pilot.
+1. Philip: re-download `Train_Test_datasets/Train_Test_Network_dataset/train_test_network.csv` on its own, as a single file.
+2. Once it arrives: check the no-`ts` claim and 461,043 rows, match its rows against the full set
+   (overlap removal), then re-run the pilot on the real training file.
+3. Philip to decide on the stream adjustments (K grid, three streams), then start W2 (RQ1 sweep with CIs).
