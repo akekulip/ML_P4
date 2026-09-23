@@ -367,9 +367,9 @@ class NetBeaconSim:
         if force_long is not None:
             long_ = long_ | np.asarray(force_long, dtype=bool)
         t32 = (pk["ts_ns"].astype(np.int64) + offset) & _M32
-        now_a, ipd_a = (t32 >> 20).tolist(), (t32 >> 10).tolist()
+        now_a, ipd_a = t32 >> 20, t32 >> 10
         if not self.wrap_window:
-            now_a = (((pk["ts_ns"].astype(np.int64) + offset)) >> 20).tolist()      # unwrapped clock
+            now_a = (pk["ts_ns"].astype(np.int64) + offset) >> 20                    # unwrapped clock
         rejected = ~np.isin(pk["proto"], (6, 17)) | ((pk["proto"] == 17) & (pk["src_port"] == 68))
 
         r_hash, r_res, r_lastc, claimed = [0] * S, [0] * S, [0] * S, [False] * S
@@ -392,83 +392,89 @@ class NetBeaconSim:
         memo_dir: dict = {}                    # directional 5-tuple -> result
         pending: list = []                     # (time, key, dirs, result)
 
-        src, dst = pk["src_ip"].tolist(), pk["dst_ip"].tolist()
-        sp, dp, pr = pk["src_port"].tolist(), pk["dst_port"].tolist(), pk["proto"].tolist()
-        ln, ts = pk["total_len"].tolist(), pk["ts_ns"].tolist()
-        fh_l, sl_l, lg_l, pc_l, rj_l = fh.tolist(), slot.tolist(), long_.tolist(), pkt_code.tolist(), rejected.tolist()
         sq = self.square
-
-        for i in range(n):
-            while pending and pending[0][0] <= ts[i]:
-                _, key, dirs, res = pending.pop(0)
-                self._memo_insert(memo, memo_dir, key, dirs, res, self.memo_size)
-            if rj_l[i]:
-                outcome[i] = REJECTED
-                continue
-            d5 = (src[i], dst[i], sp[i], dp[i], pr[i])
-            if d5 in memo_dir:                                   # sw:605
-                outcome[i], vkind[i], memo_val[i] = MEMO, 1, memo_dir[d5]
-                continue
-            s, h, L, now = sl_l[i], fh_l[i], ln[i], now_a[i]
-            if h != r_hash[s]:                                    # new flow at this slot (sw:606)
-                lastc = (now - r_lastc[s]) & _M32 if self.wrap_window else now - r_lastc[s]      # sw:268
-                if not lg_l[i]:
-                    outcome[i] = FALLBACK_SHORT
-                elif r_res[s] < 50 and lastc < self.timeout_units and (claimed[s] or (isolate is None and self.wrap_window)):
-                    outcome[i] = FALLBACK_COLLISION if claimed[s] else FALLBACK_EMPTY
-                else:                                             # takeover (sw:610-620)
-                    outcome[i] = NEW_OWNER
-                    claimed[s] = True
-                    if self.takeover_refresh:
-                        r_lastc[s] = now
-                    r_hash[s], r_pk[s], r_by[s], r_mn[s], r_mx[s] = h, 1, L, L, L
-                    r_ps[s] = sq(L >> 2)
-                    r_lts[s], r_mipd[s] = ipd_a[i], _M32
-                    r_b1[s] = int((L & _BIN_MASK) == _BIN1_VALUE)
-                    r_b2[s] = int((L & _BIN_MASK) == _BIN2_VALUE)
-                    r_res[s] = pc_l[i]                            # recirculated copy (sw:596-601)
-                    r_epoch[s] = len(epoch_init)
-                    epoch_init.append(i)
-                    epoch_events.append([])
-                continue                                          # verdict: Pkt_Tree (sw:623, 722)
-            outcome[i] = OWNER
-            r_lastc[s] = now                                      # sw:626
-            e = r_epoch[s]
-            if r_res[s] < 50:                                     # sw:627
-                if (L & _BIN_MASK) == _BIN1_VALUE:
-                    r_b1[s] = (r_b1[s] + 1) & 0xFFFF
-                if (L & _BIN_MASK) == _BIN2_VALUE:
-                    r_b2[s] = (r_b2[s] + 1) & 0xFF                # 8-bit (sw:124)
-                r_pk[s] = (r_pk[s] + 1) & 0xFFFF
-                r_by[s] = (r_by[s] + L) & _M32
-                r_mn[s], r_mx[s] = min(r_mn[s], L), max(r_mx[s], L)
-                r_ps[s] = (r_ps[s] + sq(L >> 2)) & _M32
-                ipd = (ipd_a[i] - r_lts[s]) & _M32                # sw:142
-                r_lts[s] = ipd_a[i]
-                r_mipd[s] = min(r_mipd[s], ipd)
-                N = r_pk[s]
-                if N in _PHASE_SHIFT:
-                    avg = r_by[s] >> _LOG2[N]
-                    k = _PHASE_SHIFT[N]
-                    pw = (r_ps[s] << k) & _M32 if k > 0 else r_ps[s] >> -k
-                    var = (pw - sq(avg)) & _M32
-                    feat = (r_mx[s], r_mipd[s], r_b2[s], r_b1[s], var, avg, r_mn[s])
-                    ev = len(ev_phase)
-                    ev_phase.append(N)
-                    ev_pkt.append(i)
-                    ev_feat.append(feat)
-                    epoch_events[e].append(ev)
-                    if N == 2048:
-                        code = int(self.models.phase_codes(2048, pd.DataFrame([feat], columns=FLOW_FEATURES))[0])
-                        ev_code[ev] = code
-                        if code:
-                            r_res[s] = code
-                        if code > 50:                             # digest (sw:710-712)
-                            canon = _canon(d5)
-                            dirs = (d5, (d5[1], d5[0], d5[3], d5[2], d5[4]))
-                            pending.append((ts[i] + self.memo_delay_ns, canon, dirs, code))
-                            pending.sort(key=lambda x: x[0])
-            vkind[i], vepoch[i], vevent[i] = 2, e, len(epoch_events[e])
+        chunk = 1 << 20      # per-packet Python lists are built one chunk at a time to bound memory
+        for base in range(0, n, chunk):
+            end = min(base + chunk, n)
+            sl = slice(base, end)
+            src, dst = pk["src_ip"][sl].tolist(), pk["dst_ip"][sl].tolist()
+            sp, dp, pr = pk["src_port"][sl].tolist(), pk["dst_port"][sl].tolist(), pk["proto"][sl].tolist()
+            ln, ts = pk["total_len"][sl].tolist(), pk["ts_ns"][sl].tolist()
+            fh_l, sl_l, lg_l = fh[sl].tolist(), slot[sl].tolist(), long_[sl].tolist()
+            pc_l, rj_l = pkt_code[sl].tolist(), rejected[sl].tolist()
+            nw_l, ip_l = now_a[sl].tolist(), ipd_a[sl].tolist()
+            for j in range(end - base):
+                i = base + j
+                while pending and pending[0][0] <= ts[j]:
+                    _, key, dirs, res = pending.pop(0)
+                    self._memo_insert(memo, memo_dir, key, dirs, res, self.memo_size)
+                if rj_l[j]:
+                    outcome[i] = REJECTED
+                    continue
+                d5 = (src[j], dst[j], sp[j], dp[j], pr[j])
+                if d5 in memo_dir:                                   # sw:605
+                    outcome[i], vkind[i], memo_val[i] = MEMO, 1, memo_dir[d5]
+                    continue
+                s, h, L, now = sl_l[j], fh_l[j], ln[j], nw_l[j]
+                if h != r_hash[s]:                                    # new flow at this slot (sw:606)
+                    lastc = (now - r_lastc[s]) & _M32 if self.wrap_window else now - r_lastc[s]      # sw:268
+                    if not lg_l[j]:
+                        outcome[i] = FALLBACK_SHORT
+                    elif r_res[s] < 50 and lastc < self.timeout_units and (claimed[s] or (isolate is None and self.wrap_window)):
+                        outcome[i] = FALLBACK_COLLISION if claimed[s] else FALLBACK_EMPTY
+                    else:                                             # takeover (sw:610-620)
+                        outcome[i] = NEW_OWNER
+                        claimed[s] = True
+                        if self.takeover_refresh:
+                            r_lastc[s] = now
+                        r_hash[s], r_pk[s], r_by[s], r_mn[s], r_mx[s] = h, 1, L, L, L
+                        r_ps[s] = sq(L >> 2)
+                        r_lts[s], r_mipd[s] = ip_l[j], _M32
+                        r_b1[s] = int((L & _BIN_MASK) == _BIN1_VALUE)
+                        r_b2[s] = int((L & _BIN_MASK) == _BIN2_VALUE)
+                        r_res[s] = pc_l[j]                            # recirculated copy (sw:596-601)
+                        r_epoch[s] = len(epoch_init)
+                        epoch_init.append(i)
+                        epoch_events.append([])
+                    continue                                          # verdict: Pkt_Tree (sw:623, 722)
+                outcome[i] = OWNER
+                r_lastc[s] = now                                      # sw:626
+                e = r_epoch[s]
+                if r_res[s] < 50:                                     # sw:627
+                    if (L & _BIN_MASK) == _BIN1_VALUE:
+                        r_b1[s] = (r_b1[s] + 1) & 0xFFFF
+                    if (L & _BIN_MASK) == _BIN2_VALUE:
+                        r_b2[s] = (r_b2[s] + 1) & 0xFF                # 8-bit (sw:124)
+                    r_pk[s] = (r_pk[s] + 1) & 0xFFFF
+                    r_by[s] = (r_by[s] + L) & _M32
+                    r_mn[s], r_mx[s] = min(r_mn[s], L), max(r_mx[s], L)
+                    r_ps[s] = (r_ps[s] + sq(L >> 2)) & _M32
+                    ipd = (ip_l[j] - r_lts[s]) & _M32                # sw:142
+                    r_lts[s] = ip_l[j]
+                    r_mipd[s] = min(r_mipd[s], ipd)
+                    N = r_pk[s]
+                    if N in _PHASE_SHIFT:
+                        avg = r_by[s] >> _LOG2[N]
+                        k = _PHASE_SHIFT[N]
+                        pw = (r_ps[s] << k) & _M32 if k > 0 else r_ps[s] >> -k
+                        var = (pw - sq(avg)) & _M32
+                        feat = (r_mx[s], r_mipd[s], r_b2[s], r_b1[s], var, avg, r_mn[s])
+                        ev = len(ev_phase)
+                        ev_phase.append(N)
+                        ev_pkt.append(i)
+                        ev_feat.append(feat)
+                        epoch_events[e].append(ev)
+                        if N == 2048:
+                            code = int(self.models.phase_codes(2048, pd.DataFrame([feat], columns=FLOW_FEATURES))[0])
+                            ev_code[ev] = code
+                            if code:
+                                r_res[s] = code
+                            if code > 50:                             # digest (sw:710-712)
+                                canon = _canon(d5)
+                                dirs = (d5, (d5[1], d5[0], d5[3], d5[2], d5[4]))
+                                pending.append((ts[j] + self.memo_delay_ns, canon, dirs, code))
+                                pending.sort(key=lambda x: x[0])
+                vkind[i], vepoch[i], vevent[i] = 2, e, len(epoch_events[e])
 
         codes = self._evaluate_events(ev_phase, ev_feat, ev_code)
         out = self._resolve(pk, fh, slot, outcome, vkind, vepoch, vevent, memo_val, pkt_code,
