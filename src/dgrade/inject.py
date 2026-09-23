@@ -40,7 +40,7 @@ class Merged:
 def build_fill(f: float, mode: str, n_slots: int, span_ns: int, rng: np.random.Generator,
                interval_ns: int = 250_000_000, ramp_ns: int = 5_000_000_000) -> Attack:
     """Holder flows aimed at a fraction ``f`` of the table. ``mode``: ``k1`` distinct given slots, ``k0`` uniform slots."""
-    n_flows = int(round(f * n_slots))
+    n_flows = round(f * n_slots)
     if mode == "k1":
         slots = rng.choice(n_slots, n_flows, replace=False)
     elif mode == "k0":
