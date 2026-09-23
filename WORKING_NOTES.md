@@ -427,3 +427,15 @@ the backend). The P4/BMv2 part is the deployment proof.
   - `w7_numbers.py` regenerates `numbers.json` identically;
   - the report rebuilds at 13 pages with all figures.
 - File paths in the entries above this one predate the move and are relative to `mvm_lite/`.
+
+## 2026-09-23: G1 benign reference done (NetBeacon, PeerRush)
+- Results are in `docs/results_g1.md`, made by `scripts/g1_netbeacon.py`. Runs are in `results/g1/`, which is untracked.
+- About 1% of flows (about 820 of 82,922) are downgraded under benign load at 65,536 slots. That is stable across seeds.
+- The gap between the full and fallback models on downgraded flows is bimodal:
+  - median +0.039;
+  - eight seeds near +0.035;
+  - two seeds near +0.32, when a few very large flows lose their slot.
+- Seeds differ only in the clock start, because NetBeacon's hash is unkeyed.
+- H1 is neither passed nor falsified on this benign population. The pre-registered H1 population is flows downgraded under attack, and that is still open.
+- The first isolated reference was discarded and re-run without idle splitting (see the `preregistration.md` change log).
+- The keyed-hash baseline and the attack model are still to do.
