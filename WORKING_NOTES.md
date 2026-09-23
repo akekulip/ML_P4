@@ -387,3 +387,14 @@ the backend). The P4/BMv2 part is the deployment proof.
    - Three orderings: file order, within-second shuffle, and flow-end time.
    - Three streams: full, benign-only, per-phase.
    - Pareto frontier of macro-F1 vs W90, and the ccp trees.
+
+## 2026-09-23: paper direction agreed (round table), gates next
+- Round table converged; plan approved by Philip: `docs/paper_plan.md`.
+  Paper: *Downgrade Attacks on Stateful In-Network Classifiers and Value-Aware Slot Admission*.
+  Target ACSAC; TDSC fallback.
+- Record and sources: `docs/lit/round_table.md`, `docs/lit/bibliography.md`.
+- Next action: gate G0, offline only.
+  - Clone NetBeacon, BoS, Flowrest and SketchFeature into `third_party/` (gitignored).
+  - Extract table sizes, hashes, timeouts, reclamation, predictor, T_esc and the collision budget, with `file:line`, into `docs/results_g0.md`.
+- Then G1: the downgrade gap (H1), tests first. H1–H5 are committed in a pre-registration file before G1 runs.
+- No switch time until the gates pass. G4b is compile-only.
