@@ -474,3 +474,9 @@ the backend). The P4/BMv2 part is the deployment proof.
 - Available memory fell to 1 GB while the fill grid (about 4.5 GB per job at f = 25%), G4a and a separate ML_FDNA job (about 16 cores, 6 GB, another session's `run_baselines.py`) all ran. The fill pool was stopped by PID (no partial outputs). Finished fill runs: 233 of 960.
 - To resume the fill grid: rerun the staged command with the job lists `g2b_stage1.txt`, `g2b_stage2.txt` and `g2b_model.txt` (scratchpad), launcher `run_g2b.sh` (uses `results/frozen_src`).
 - G4a runs as two pools (forward and reverse job order, parallelism 2 each).
+
+## 2026-09-23 (late): G4a and H3 done
+- Reports: `docs/results_g4a.md`, `docs/results_g4a_diagnosis.md`, `docs/results_g4_peerrush.md`, `docs/results_g2b_h3.md`.
+- Rent admission (D3) fails M2 on both days; D1 is a free benign improvement; D2 and XOR-salt do nothing against fills. H3 passes only against the two pre-registered volumetric detectors; a packet-rate detector catches the attack. Details and the revised paper thesis are in the plan file.
+- The fill grid is paused at the runs listed in the reports (undefended fill arms present: oracle f = 1, 10, 50, 75, 90 and 25 for both days; model gate not run).
+- Owed: SDE model diff and compile check (need approval), G3 (needs CICIoT2023 attack folders), a pre-registered discriminating defence.
