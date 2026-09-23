@@ -63,3 +63,29 @@ def test_resident_set_never_exceeds_k():
         r = simulate(p, seq, 10)
         assert r.max_resident <= 10
         assert r.inserts - r.evictions <= 10
+
+
+@pytest.mark.parametrize("k", [1, 3, 8, 32])
+def test_lru_hits_exactly_when_reuse_distance_below_k(k):
+    from mvm.locality import reuse_distance
+
+    seq = np.random.default_rng(k).zipf(1.4, 4000) % 90
+    rd = reuse_distance(seq)
+    assert simulate(LRU(), seq, k).hits.tolist() == ((rd >= 0) & (rd < k)).tolist()
+
+
+FAST_CASES = [("lfu", LFU, {}), ("dlfu", DecayedLFU, {"gamma": 0.9}), ("dlfu", DecayedLFU, {"gamma": 0.999}),
+              ("belady", Belady, {}), ("lru", LRU, {})]
+
+
+@pytest.mark.parametrize("kind,cls,kw", FAST_CASES)
+@pytest.mark.parametrize("k", [1, 4, 16])
+def test_fast_simulator_matches_reference_policy(kind, cls, kw, k):
+    from mvm.cache import simulate_fast
+
+    seq = np.random.default_rng(k * 31 + len(kind)).zipf(1.3, 6000) % 120
+    ref = simulate(cls(**kw), seq, k)
+    fast = simulate_fast(kind, seq, k, **kw)
+    assert fast.hits.tolist() == ref.hits.tolist()
+    assert (fast.inserts, fast.evictions) == (ref.inserts, ref.evictions)
+    assert fast.max_resident <= k
