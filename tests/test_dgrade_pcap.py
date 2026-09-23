@@ -61,3 +61,19 @@ def test_drops_what_netbeacon_parser_rejects(tmp_path):
     assert stats == {"records": 5, "kept": 1, "not_ipv4": 1, "fragment": 1, "ip_options": 1, "not_tcp_udp": 1,
                      "truncated": 0}
     assert np.all(pk["proto"] == 17)
+
+
+def test_sort_by_time_orders_packets_and_counts_reordering(tmp_path):
+    udp = struct.pack("!HHHH", 1, 2, 8, 0)
+    frames = [_eth(_ipv4(1, 2, 17, udp)) for _ in range(4)]
+    # record times 100, 105 (i=1), then rewrite so that packet 2 is older than packet 1
+    p = _pcap(frames, tmp_path)
+    data = bytearray(p.read_bytes())
+    rec = 24 + 2 * (16 + len(frames[0]))
+    struct.pack_into("<II", data, rec, 100, 1)                # packet 2 now earlier than packet 1
+    p.write_bytes(bytes(data))
+    plain, st0 = read_pcap(p)
+    srt, st1 = read_pcap(p, sort_by_time=True)
+    assert not np.all(np.diff(plain["ts_ns"]) >= 0)
+    assert np.all(np.diff(srt["ts_ns"]) >= 0) and len(srt) == len(plain)
+    assert st1["reordered"] == 1 and "reordered" not in st0

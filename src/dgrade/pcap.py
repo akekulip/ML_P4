@@ -25,8 +25,10 @@ def _be16(buf: np.ndarray, off: np.ndarray) -> np.ndarray:
     return (buf[off].astype(np.int64) << 8) | buf[off + 1]
 
 
-def read_pcap(path: str | Path) -> tuple[np.ndarray, dict[str, int]]:
-    """Return (packets in file order, counts of kept and dropped records)."""
+def read_pcap(path: str | Path, sort_by_time: bool = False) -> tuple[np.ndarray, dict[str, int]]:
+    """Return (packets, counts of kept and dropped records). Packets are in file order unless
+    ``sort_by_time``: then a stable sort by timestamp is applied (real captures such as MAWI are not
+    strictly time-ordered) and ``stats["reordered"]`` counts packets that arrived earlier than their predecessor."""
     data = Path(path).read_bytes()
     magic = struct.unpack("<I", data[:4])[0]
     if magic not in _MAGIC:
@@ -95,4 +97,7 @@ def read_pcap(path: str | Path) -> tuple[np.ndarray, dict[str, int]]:
     out["tcp_window"] = np.where(is_tcp, _be16(buf, np.minimum(l4 + 14, len(buf) - 2)), 0)
     out["udp_length"] = np.where(~is_tcp, _be16(buf, np.minimum(l4 + 4, len(buf) - 2)), 0)
     stats["kept"] = len(idx)
+    if sort_by_time:
+        stats["reordered"] = int(np.sum(np.diff(out["ts_ns"]) < 0))
+        out = out[np.argsort(out["ts_ns"], kind="stable")]
     return out, stats
