@@ -64,12 +64,39 @@ def load_stream() -> tuple[np.ndarray, np.ndarray]:
     return z["pk"], z["lab"]
 
 
+GRID = 30
+WRAP_NS = 1 << 32
+
+
+def parse_job(job: str) -> tuple[str, int | None, int]:
+    """``KIND[:SEED]@GRID`` -> (kind, hash seed, clock offset in ns). KIND is iso, crc, xorsalt, poly or tab;
+    the clock is GRID/30 of the 4.295 s wrap period."""
+    left, _, g = job.partition("@")
+    kind, _, seed = left.partition(":")
+    return kind, (int(seed) if seed else None), int(g) * (WRAP_NS // GRID)
+
+
 def run_job(job: str) -> None:
+    if job.replace("_", "").isdigit() or "@" not in job:      # G1 seed runs (random clock from the seed)
+        return run_g1_seed(job)
+    kind, hseed, offset = parse_job(job)
+    pk, _ = load_stream()
+    models = TableModels(load_tables(ART))
+    if kind == "iso":
+        out = NetBeaconSim(models=models, clock_offset_ns=offset).run(pk, isolate=flow_ids(pk, TUPLE_ONLY))
+    else:
+        out = NetBeaconSim(models=models, clock_offset_ns=offset, hash_kind=kind, hash_seed=hseed).run(pk)
+    name = job.replace(":", "_").replace("@", "_at")
+    np.savez_compressed(OUT / f"g1b_{name}.npz", outcome=out["outcome"], result=out["result"].astype(np.int16),
+                        offset=offset)
+    print(job, "done", np.bincount(out["outcome"], minlength=7))
+
+
+def run_g1_seed(job: str) -> None:
     pk, _ = load_stream()
     models = TableModels(load_tables(ART))
     if job == "iso":
-        sim = NetBeaconSim(models=models, seed=0)
-        out = sim.run(pk, isolate=flow_ids(pk, TUPLE_ONLY))
+        out = NetBeaconSim(models=models, seed=0).run(pk, isolate=flow_ids(pk, TUPLE_ONLY))
     else:
         out = NetBeaconSim(models=models, seed=int(job)).run(pk)
     np.savez(OUT / f"run_{job}.npz", outcome=out["outcome"], result=out["result"], source=out["source"].astype(str),

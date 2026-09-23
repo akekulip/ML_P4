@@ -1,0 +1,216 @@
+"""G1b report: hash arms on benign PeerRush, following docs/preregistration.md (change log, 2026-09-23).
+
+Reads results/g1/g1b_*.npz (made by ``g1_netbeacon.py --job KIND[:SEED]@GRID``) and writes
+docs/results_g1b.md. Every run is paired with the isolated reference at the same clock start.
+Primary metric L = macro-F1(isolated) - macro-F1(contended) over all flows.
+"""
+
+from __future__ import annotations
+
+import glob
+import itertools
+import re
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from scipy.stats import beta
+
+from dgrade.flowstats import FlowIndex, downgraded_flows
+from dgrade.netbeacon_sim import flow_ids
+
+ROOT = Path(__file__).resolve().parents[1]
+OUT = ROOT / "results/g1"
+N_CLASS = 3
+TUPLE_ONLY = 1 << 62
+BIG = 0.004                     # p_big threshold, fixed in the pre-registration
+EQUIV_L, EQUIV_SHARE = 0.002, 0.001
+
+
+def class_of(result: np.ndarray) -> np.ndarray:
+    r = result.astype(np.int64)
+    return np.where(r == 0, -1, (r - 1) % 50)
+
+
+def confusion(truth, pred, perm) -> np.ndarray:
+    p = np.where(pred < 0, 3, np.asarray(perm)[np.clip(pred, 0, N_CLASS - 1)])
+    return np.bincount(truth.astype(np.int64) * 4 + p, minlength=12).reshape(3, 4)
+
+
+def macro_f1(cm) -> float:
+    f = []
+    for c in range(N_CLASS):
+        tp, fp, fn = cm[c, c], cm[:, c].sum() - cm[c, c], cm[c].sum() - cm[c, c]
+        f.append(0.0 if tp == 0 else 2 * tp / (2 * tp + fp + fn))
+    return float(np.mean(f))
+
+
+def cp_interval(k: int, n: int, a: float = 0.05) -> tuple[float, float]:
+    lo = 0.0 if k == 0 else beta.ppf(a / 2, k, n - k + 1)
+    hi = 1.0 if k == n else beta.ppf(1 - a / 2, k + 1, n - k)
+    return float(lo), float(hi)
+
+
+def boot_ci(x: np.ndarray, q=(5, 95), n=4000, seed=0) -> tuple[float, float]:
+    rng = np.random.default_rng(seed)
+    m = np.array([rng.choice(x, len(x)).mean() for _ in range(n)])
+    return tuple(float(v) for v in np.percentile(m, q))
+
+
+def parse(path: str) -> tuple[str, int | None, int]:
+    m = re.match(r"g1b_([a-z]+)(?:_(\d+))?_at(\d+)\.npz", Path(path).name)
+    return m.group(1), (int(m.group(2)) if m.group(2) else None), int(m.group(3))
+
+
+def main() -> None:
+    z = np.load(OUT / "stream.npz")
+    pk, lab = z["pk"], z["lab"]
+    idx = FlowIndex(flow_ids(pk, TUPLE_ONLY))
+    iso0 = np.load(OUT / "g1b_iso_at0.npz")
+    keep = iso0["outcome"] != 5
+    truth = lab[keep]
+    perms = list(itertools.permutations(range(N_CLASS)))
+    sc = {p: macro_f1(confusion(truth, class_of(iso0["result"][keep]), p)) for p in perms}
+    perm = max(sc, key=sc.get)
+    top20 = np.argsort(-idx.n_pkts, kind="stable")[:20]
+    first = idx.order[idx.start]                     # first packet of each flow
+
+    iso_cache: dict[int, dict] = {}
+
+    def iso(g: int) -> dict:
+        if g not in iso_cache:
+            r = np.load(OUT / f"g1b_iso_at{g}.npz")
+            cls = class_of(r["result"][keep])
+            iso_cache[g] = {"cls": cls, "f1": macro_f1(confusion(truth, cls, perm)),
+                            "ok": idx.per_flow_sum(cls_ok(cls, truth, perm))}
+        return iso_cache[g]
+
+    def cls_ok(cls, tr, pm):
+        return np.where(cls < 0, False, np.asarray(pm)[np.clip(cls, 0, N_CLASS - 1)] == tr)
+
+    rows, outs = [], {}
+    for path in sorted(glob.glob(str(OUT / "g1b_*.npz"))):
+        kind, seed, g = parse(path)
+        if kind == "iso":
+            continue
+        r = np.load(path)
+        oc, con = r["outcome"][keep], class_of(r["result"][keep])
+        ref = iso(g)
+        flag = downgraded_flows(oc, idx)
+        d_pk = flag[idx.code]
+        con_ok = idx.per_flow_sum(cls_ok(con, truth, perm))
+        loss = ref["ok"] - con_ok
+        net = loss.sum()
+        cm_f = confusion(truth[d_pk], ref["cls"][d_pk], perm)
+        cm_c = confusion(truth[d_pk], con[d_pk], perm)
+        rows.append({
+            "kind": kind, "seed": seed, "grid": g,
+            "L": ref["f1"] - macro_f1(confusion(truth, con, perm)),
+            "down_flows": int(flag.sum()), "down_flow_share": float(flag.mean()),
+            "down_pkt_share": float(d_pk.mean()),
+            "top20_share_of_loss": float(loss[top20].sum() / net) if net > 0 else float("nan"),
+            "gap_down": macro_f1(cm_f) - macro_f1(cm_c),
+            "empty_flows": int(pd.Series(oc == 6).groupby(idx.code).any().sum()),
+        })
+        outs[(kind, seed, g)] = (oc, flag)
+    df = pd.DataFrame(rows)
+    df["arm"] = [f"{k} (clock varied)" if (s is None or s == g) else f"{k} (clock fixed at grid 0)"
+                 for k, s, g in zip(df.kind, df.seed, df.grid)]
+    df.loc[(df.kind == "crc"), "arm"] = "crc (unkeyed, clock varied)"
+    df.to_csv(OUT / "g1b_summary.csv", index=False)
+
+    arms = {a: d for a, d in df.groupby("arm")}
+    crc = arms["crc (unkeyed, clock varied)"].sort_values("grid")
+    crc0 = df[(df.kind == "crc") & (df.grid == 0)].iloc[0]
+    L = ["# Gate G1b results: hash arms on benign PeerRush (NetBeacon emulator, 65,536 slots)", "",
+         ("Generated by `scripts/g1b_report.py` from `results/g1/g1b_*.npz`, following the addendum in "
+         "`docs/preregistration.md` (committed before any run). Same merged PeerRush stream as G1. Every run is "
+         "paired with an isolated reference at the same clock start; clock starts are a 30-point grid over the "
+         "4.295 s wrap period. Primary metric L = macro-F1(isolated) − macro-F1(contended) over all flows. "
+         f"Class mapping fixed from the isolated run (F1 {sc[perm]:.3f})."), "",
+         "## Arms", "", ("| arm | draws | mean L | median L | p_big (L > 0.004) [95% CI] | downgraded flows (share) | "
+         "downgraded packets (share) | top-20 flows' share of net loss (median) | gap on downgraded flows: median [range] |"),
+         "|---|---|---|---|---|---|---|---|---|"]
+    for a, d in sorted(arms.items()):
+        k = int((d.L > BIG).sum())
+        lo, hi = cp_interval(k, len(d))
+        L.append(f"| {a} | {len(d)} | {d.L.mean():.5f} | {d.L.median():.5f} | {k}/{len(d)} [{lo:.2f}, {hi:.2f}] | "
+                 f"{d.down_flow_share.mean():.4%} | {d.down_pkt_share.mean():.4%} | {d.top20_share_of_loss.median():.2f} | "
+                 f"{d.gap_down.median():+.4f} [{d.gap_down.min():+.4f}, {d.gap_down.max():+.4f}] |")
+
+    L += ["", "## Negative control: does an XOR-salt change which flows are downgraded?", "",
+          ("CRC is affine over GF(2), so a salt shifts every slot by one constant and collisions are unchanged. "
+          "Prediction (pre-registered): the outcomes are identical to the unkeyed run at the same clock.")]
+    same_out = same_set = n = 0
+    for g in range(30):
+        key = ("xorsalt", g, g)
+        if key in outs and ("crc", None, g) in outs:
+            n += 1
+            same_out += int(np.array_equal(outs[key][0], outs[("crc", None, g)][0]))
+            same_set += int(np.array_equal(outs[key][1], outs[("crc", None, g)][1]))
+    same0 = tot0 = 0
+    for s in range(30):
+        key = ("xorsalt", s, 0)
+        if key in outs and ("crc", None, 0) in outs:
+            tot0 += 1
+            same0 += int(np.array_equal(outs[key][0], outs[("crc", None, 0)][0]))
+    L += ["", (f"- Clock varied: {same_out} of {n} runs have per-packet outcomes identical to the unkeyed run; the "
+          f"downgraded-flow set is identical in {same_set} of {n}."),
+          f"- Clock fixed at grid 0: {same0} of {tot0} salts give identical outcomes."]
+
+    L += ["", "## Is a keyed hash neutral on benign traffic?", "",
+          ("Pre-registered rule (all three needed): (a) the 90% CI of mean L(keyed) − mean L(unkeyed) lies within "
+          f"±{EQUIV_L}; (b) the downgraded-packet-share difference CI lies within ±{EQUIV_SHARE:.1%}; (c) the p_big "
+          "intervals overlap. Percentile bootstrap over draws; clock-varied arms are paired by clock."), "",
+          "| arm | mean ΔL [90% CI] | Δ packet share [90% CI] | p_big interval overlaps unkeyed | verdict |",
+          "|---|---|---|---|---|"]
+    base_k = int((crc.L > BIG).sum())
+    base_ci = cp_interval(base_k, len(crc))
+    for a, d in sorted(arms.items()):
+        if a.startswith("crc"):
+            continue
+        if "fixed" in a:
+            dl = d.L.to_numpy() - crc0.L
+            ds = d.down_pkt_share.to_numpy() - crc0.down_pkt_share
+        else:
+            m = d[d.grid.isin(crc.grid)].sort_values("grid")
+            cg = crc.set_index("grid")
+            dl = m.L.to_numpy() - cg.loc[m.grid, "L"].to_numpy()
+            ds = m.down_pkt_share.to_numpy() - cg.loc[m.grid, "down_pkt_share"].to_numpy()
+        ci_l, ci_s = boot_ci(dl), boot_ci(ds)
+        k = int((d.L > BIG).sum())
+        lo, hi = cp_interval(k, len(d))
+        ov = (lo <= base_ci[1]) and (base_ci[0] <= hi)
+        a_ok = -EQUIV_L <= ci_l[0] and ci_l[1] <= EQUIV_L
+        b_ok = -EQUIV_SHARE <= ci_s[0] and ci_s[1] <= EQUIV_SHARE
+        verdict = ("neutral on benign traffic" if (a_ok and b_ok and ov) else
+                   "changed distribution" if (dl.mean() != 0 and (ci_l[0] > EQUIV_L or ci_l[1] < -EQUIV_L)) else
+                   "not shown neutral")
+        L.append(f"| {a} | {dl.mean():+.5f} [{ci_l[0]:+.5f}, {ci_l[1]:+.5f}] | {ds.mean():+.4%} "
+                 f"[{ci_s[0]:+.4%}, {ci_s[1]:+.4%}] | {'yes' if ov else 'no'} | {verdict} |")
+
+    big = crc.sort_values("L", ascending=False).head(1).iloc[0]
+    L += ["", "## G1 re-derived with paired references", "",
+          (f"Unkeyed arm at 30 clock starts, each against its own reference: gap on downgraded flows median "
+          f"{crc.gap_down.median():+.4f}, range {crc.gap_down.min():+.4f} to {crc.gap_down.max():+.4f}; "
+          f"L median {crc.L.median():.5f}, max {crc.L.max():.5f}. G1 (single reference at seed 0's clock) "
+          "reported a median of +0.0386 and a range of +0.0339 to +0.3245, so the two can be compared directly."), "",
+          "## Flows behind the largest-L unkeyed run", "",
+          (f"Grid clock {int(big.grid)}: L = {big.L:.5f}, downgraded packets {big.down_pkt_share:.4%}. Top flows by net "
+          "packets lost:"), "", "| flow | class (app) | packets | correct under isolation | correct contended | lost |", "|---|---|---|---|---|---|"]
+    r = np.load(OUT / f"g1b_crc_at{int(big.grid)}.npz")
+    con = class_of(r["result"][keep])
+    ref = iso(int(big.grid))
+    con_ok = idx.per_flow_sum(cls_ok(con, truth, perm))
+    loss = ref["ok"] - con_ok
+    apps = ["eMule", "uTorrent", "Vuze"]
+    for f in np.argsort(-loss)[:5]:
+        L.append(f"| #{f} (src port {pk['src_port'][first[f]]}, dst port {pk['dst_port'][first[f]]}) | "
+                 f"{apps[int(truth[first[f]])]} | {int(idx.n_pkts[f]):,} | {int(ref['ok'][f]):,} | "
+                 f"{int(con_ok[f]):,} | {int(loss[f]):,} |")
+    (ROOT / "docs/results_g1b.md").write_text("\n".join(L) + "\n")
+    print("\n".join(L))
+
+
+if __name__ == "__main__":
+    main()
