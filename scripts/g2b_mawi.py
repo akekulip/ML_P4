@@ -3,8 +3,9 @@
   g2b_mawi.py --job DAY:GATE:MODE:F@GRID
 
 DAY p or r; GATE oracle or model; MODE k1 (hash known: the shipped CRC places benign flows, the adversary is
-*given* its slots) or k0 (secret hash: an irreducible-polynomial CRC keyed with GRID places benign flows, the
-adversary lands on uniform random slots); F is the percentage of the 65,536 slots aimed at (1, 5, 10, 25, 50,
+*given* distinct slots), b0l (the decision baseline B0-L: same benign hash as k1, but the adversary's long flows
+land on uniform random slots) or k0 (secret hash: an irreducible-polynomial CRC keyed with GRID places benign
+flows, the adversary lands on uniform random slots); F is the percentage of the 65,536 slots aimed at (1, 5, 10, 25, 50,
 75, 90); GRID is both the clock start (GRID/30 of the wrap period) and the draw number. Analytical abstraction
 only (see ``dgrade.inject``). The paired no-attack baseline is the G2a run at the same clock and hash.
 Writes results/g2/b_<job>.npz with the benign packets' outcomes and per-flow attacker outcomes.
@@ -37,12 +38,14 @@ def run(job: str) -> None:
     g, f = int(g), int(f)
     pk = load_day(day)
     z = np.load(OUT / f"prep_{day}.npz")
-    kind, hseed = ("crc", None) if mode == "k1" else ("polyirr", g)
+    if mode not in ("k1", "b0l", "k0"):
+        raise ValueError(f"unknown mode {mode!r}")
+    kind, hseed = ("polyirr", g) if mode == "k0" else ("crc", None)
     fh = hash_unique(z["uniq"], kind, hseed)[z["inv"]]
     b_slot = (fh & 0xFFFF).astype(np.int64)
     span = int(pk["ts_ns"].max()) + 1
     rng = np.random.default_rng(1000 * f + g)
-    atk = build_fill(f / 100, mode, 65536, span, rng)
+    atk = build_fill(f / 100, "k1" if mode == "k1" else "k0", 65536, span, rng)
     m = merge_attack(pk, b_slot, fh, atk)
     n_b, n_a = len(pk), len(atk.pk)
     long_flag = z["long_flag"] if gate == "oracle" else None
