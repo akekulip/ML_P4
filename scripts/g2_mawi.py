@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
+from dgrade.defences import defence_kwargs
 from dgrade.netbeacon import load_tables
 from dgrade.netbeacon_sim import (
     FALLBACK_COLLISION,
@@ -77,6 +78,7 @@ def prep(day: str) -> None:
 
 def run(job: str) -> None:
     left, _, g = job.partition("@")
+    g, _, dfn = g.partition("+")                 # optional defence suffix, e.g. p:oracle:crc@3+d3c16
     day, gate, kind, *seed = left.split(":")
     hseed = int(seed[0]) if seed else None
     pk = load_day(day)
@@ -85,7 +87,7 @@ def run(job: str) -> None:
                           z["long_flag"] if gate == "oracle" else None)
     fh = hash_unique(z["uniq"], kind, hseed)[z["inv"]]
     slot = (fh & 0xFFFF).astype(np.int64)
-    sim = NetBeaconSim(models=models, clock_offset_ns=int(g) * (WRAP_NS // GRID))
+    sim = NetBeaconSim(models=models, clock_offset_ns=int(g) * (WRAP_NS // GRID), **defence_kwargs(dfn))
     out = sim.run(pk, force_slot=slot, force_hash=fh)
     sec = (pk["ts_ns"] // 10**9).astype(np.int64)
     oc = out["outcome"]
@@ -94,7 +96,7 @@ def run(job: str) -> None:
                                   ("takeover", NEW_OWNER), ("owner", OWNER), ("memo", MEMO))}
     per_sec["long_pred"] = np.bincount(sec, weights=out["predicted_long"], minlength=120)
     per_sec["packets"] = np.bincount(sec, minlength=120).astype(float)
-    name = job.replace(":", "_").replace("@", "_at")
+    name = job.replace(":", "_").replace("@", "_at").replace("+", "_p_")
     np.savez_compressed(OUT / f"a_{name}.npz", outcome=oc, **per_sec)
     print(job, "done", np.bincount(oc, minlength=7), f"predicted long {out['predicted_long'].mean():.3f}")
 

@@ -22,6 +22,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from g2_mawi import ART, GRID, OUT, WRAP_NS, CachedModels, load_day
 
+from dgrade.defences import defence_kwargs
 from dgrade.inject import build_fill, merge_attack
 from dgrade.netbeacon import load_tables
 from dgrade.netbeacon_sim import (
@@ -34,6 +35,7 @@ from dgrade.netbeacon_sim import (
 
 def run(job: str) -> None:
     left, _, g = job.partition("@")
+    g, _, dfn = g.partition("+")                 # optional defence suffix, e.g. p:oracle:b0l:10@3+d3c16
     day, gate, mode, f = left.split(":")
     g, f = int(g), int(f)
     pk = load_day(day)
@@ -54,7 +56,7 @@ def run(job: str) -> None:
     pc_all = np.concatenate([z["pkt_code"].astype(np.int64), np.ones(n_a, dtype=np.int64)])[m.order]
     fs_all = np.concatenate([fs_b, np.full(n_a, 100)])[m.order]
     models = CachedModels(load_tables(ART), pc_all, fs_all, None)
-    sim = NetBeaconSim(models=models, clock_offset_ns=g * (WRAP_NS // GRID))
+    sim = NetBeaconSim(models=models, clock_offset_ns=g * (WRAP_NS // GRID), **defence_kwargs(dfn))
     out = sim.run(m.pk, force_slot=m.slot, force_hash=m.hash, force_long=m.force_long)
     oc = out["outcome"]
     pos = np.empty(len(m.order), dtype=np.int64)
@@ -62,7 +64,7 @@ def run(job: str) -> None:
     a_oc = oc[pos[n_b:]]                                   # attacker outcomes in attacker-packet order
     owned = np.bincount(atk.flow, weights=np.isin(a_oc, (OWNER, NEW_OWNER)).astype(float))
     npk = np.bincount(atk.flow).astype(float)
-    name = job.replace(":", "_").replace("@", "_at")
+    name = job.replace(":", "_").replace("@", "_at").replace("+", "_p_")
     np.savez_compressed(OUT / f"b_{name}.npz", benign_outcome=oc[~m.is_attacker], atk_owned=owned, atk_packets=npk,
                         atk_slot_first=atk.slot[np.unique(atk.flow, return_index=True)[1]], n_attacker_packets=n_a)
     print(job, "done; attacker flows holding a slot for >=90% of their packets:", float(np.mean(owned >= 0.9 * npk)))
