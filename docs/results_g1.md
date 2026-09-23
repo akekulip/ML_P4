@@ -37,3 +37,7 @@ Seed-0 downgraded-flow gap +0.0339, 95% CI [+0.0265, +0.0413] (1,000 resamples o
 The per-seed gap is bimodal (seeds that downgrade a few very large flows give a much larger gap), so the verdict uses the median, not the mean. This measures only the benign-only population on PeerRush, one victim task. Gap between 0.03 and 0.10: neither pass nor falsified on this task.
 
 The pre-registered H1 population is flows downgraded under attack; that needs the attack model and is not part of G1. This result is the benign reference.
+
+## Erratum (added after G1b, 2026-09-23)
+
+This report compared each contended seed with an isolated reference at seed 0's clock start, and its downgrade count omitted flows that lost a slot and were then answered as "predicted short". G1b (`docs/results_g1b.md`) re-ran the comparison with one reference per clock start and the corrected definition. The unkeyed arm at 30 clock starts gives a median gap on downgraded flows of +0.0349 (range +0.0307 to +0.3313), against +0.0386 (+0.0339 to +0.3245) here. The bimodal gap is therefore real, not an artefact of the reference mismatch: in 3 of 30 clock starts a single very large uTorrent flow (about 40,000 packets, destination port 41000) loses almost all of its correct verdicts. The numbers above are superseded by G1b.

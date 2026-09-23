@@ -439,3 +439,12 @@ the backend). The P4/BMv2 part is the deployment proof.
 - H1 is neither passed nor falsified on this benign population. The pre-registered H1 population is flows downgraded under attack, and that is still open.
 - The first isolated reference was discarded and re-run without idle splitting (see the `preregistration.md` change log).
 - The keyed-hash baseline and the attack model are still to do.
+
+## 2026-09-23: G1b hash comparison done (`docs/results_g1b.md`)
+- 267 runs: 30 paired isolated references, unkeyed CRC at 30 clock starts, and 30-draw arms for XOR-salt, random polynomial, irreducible polynomial and tabulation hash (clock varied and clock fixed where planned).
+- **The XOR-salt negative control held:** outcomes were identical to the unkeyed run in 30 of 30 runs in each column. A plain salt on a CRC is not a keyed defense.
+- The downgraded-flow share is about 1.07% in every arm. The share of **packets** downgraded is 1.1% to 1.2% for the shipped hash and 2.1% to 3.9% for keyed hashes. Only 1 of 30 keyed draws at fixed clock is at or below the shipped value. That is the "changed distribution" verdict under pre-registered rule (b).
+- The accuracy loss L is tiny in every arm (mean about 0.001), so rule (a) passes everywhere.
+- G1's bimodal gap is real: 3 of 30 clock starts give a gap near +0.33, driven by one uTorrent flow of about 40,000 packets. The G1 erratum says so.
+- The pre-registration was amended after a code review and a partial look at the data; see its change log.
+- Next: read the re-review, then revise the plan and move to G2 (targeted-displacement arm: known hash against secret irreducible polynomial), which needs a MAWI trace day fixed in the pre-registration.

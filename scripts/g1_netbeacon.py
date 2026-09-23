@@ -214,6 +214,15 @@ def report() -> None:
                 "Gap between 0.03 and 0.10: neither pass nor falsified on this task."))
     L += ["", ("The pre-registered H1 population is flows downgraded under attack; that needs the attack model and is not "
           "part of G1. This result is the benign reference.")]
+    L += ["", "## Erratum (added after G1b, 2026-09-23)", "",
+          ("This report compared each contended seed with an isolated reference at seed 0's clock start, and its "
+          "downgrade count omitted flows that lost a slot and were then answered as \"predicted short\". G1b "
+          "(`docs/results_g1b.md`) re-ran the comparison with one reference per clock start and the corrected "
+          "definition. The unkeyed arm at 30 clock starts gives a median gap on downgraded flows of +0.0349 "
+          "(range +0.0307 to +0.3313), against +0.0386 (+0.0339 to +0.3245) here. The bimodal gap is therefore real, "
+          "not an artefact of the reference mismatch: in 3 of 30 clock starts a single very large uTorrent flow "
+          "(about 40,000 packets, destination port 41000) loses almost all of its correct verdicts. "
+          "The numbers above are superseded by G1b.")]
     (ROOT / "docs/results_g1.md").write_text("\n".join(L) + "\n")
     df.to_csv(OUT / "summary.csv", index=False)
     print("\n".join(L))
