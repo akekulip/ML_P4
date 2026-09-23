@@ -21,7 +21,7 @@ the backend). The P4/BMv2 part is the deployment proof.
 ## Milestones
 - [ ] **W1:** repo, uv env, data download, check ts/order/overlap, locality pilot (DT depth 8, C(32)) — go/no-go
 - [x] **W2 (done 2026-09-22, stand-in training pools):** RQ1 — LR/DT/RF, depth and ccp sweep, metrics with bootstrap CIs, feature ablations
-- [ ] **W3:** RQ2/RQ3 — locality metrics, Pareto frontier of F1 vs W90, drift (JS), shuffled vs chronological, per-phase windows
+- [x] **W3 (done 2026-09-22 21:51, stand-in pools):** RQ2/RQ3 — locality metrics, Pareto frontier of F1 vs W90, drift (JS), shuffled vs chronological, per-phase windows
 - [ ] **W4:** RQ4 — cache simulator (static, LRU, LFU, decayed-LFU, oracle), K sweep, recovery time, regret, churn
 - [ ] **W5:** BMv2 — mvm.p4, controller, write-rate measurement, fidelity
 - [ ] **W6:** BMv2 end-to-end replay and latency (labeled "BMv2 ≠ ASIC"); NF-ToN-IoT-v3 cross-check as stretch
@@ -164,11 +164,55 @@ the backend). The P4/BMv2 part is the deployment proof.
 - **Weak classes.** Ransomware recall is .29 (grouped DT) and mitm .57. In the 10-class
   task, ransomware is almost never identified (.008) and scanning is .64.
 
+## W3 results (2026-09-22) — full tables in `docs/results_w3.md`
+- **Working set grows with tree size.** Grouped split, data-plane DTs, 5 seeds, mean values:
+
+  | depth | leaves | full W90 | benign W90 |
+  |---|---|---|---|
+  | 4 | 16 | 4 | 8.8 |
+  | 6 | 61 | 6.2 | 14.6 |
+  | 10 | 439 | 12.8 | 30.6 |
+  | None | 1,944 | 26 | 46 |
+
+- **H2 as revised holds.** Depths 4, 6, 8 and 10 are Pareto-optimal on macro-F1 against benign W90.
+  Depths 12, 16 and None are **dominated**: they are both less accurate and less cacheable. This holds for
+  grouped and forward splits alike.
+- **Attacks are cache-friendly; benign traffic sets the table size.** W90 per type at depth 10:
+
+  | type | W90 |
+  |---|---|
+  | backdoor | 1 |
+  | dos | 1 |
+  | scanning | 3.8 |
+  | xss | 4.2 |
+  | password | 5 |
+  | ddos | 7 |
+  | normal | 30.6 |
+  | mitm | 35 (n=527) |
+
+- **An online cache beats the best static table.** At depth 10 with K=8:
+
+  | stream | LRU | best fixed table in hindsight, C(8) |
+  |---|---|---|
+  | full | .978 | .826 |
+  | benign | .870 | .584 |
+
+  The traffic has temporal locality beyond raw frequency, because the attack phases shift.
+- **Ordering robustness (methodology review M4).**
+  - File order and a within-second shuffle are identical.
+  - Flow-end order raises only small-K hit rates (full stream, K=1: .58 → .81).
+  - All orderings converge by K=8, so conclusions for K≥8 hold under every ordering.
+- **Engineering note.** The earlier multi-hour W3 attempts were pure resource failures: a fork deadlock
+  and OOM kills leaving the Pool hung. With per-process units (`experiments/overnight.sh`) and category
+  codes, one unit takes about 5 minutes at a 4.8 GB peak, and the whole stage takes 9 minutes.
+
 ## Next action
 1. Philip: re-download `Train_Test_datasets/Train_Test_Network_dataset/train_test_network.csv` on its own, as a single file.
 2. Once it arrives: check the no-`ts` claim and 461,043 rows, match its rows against the full set
    (overlap removal), then re-run the pilot on the real training file.
-3. W3 (RQ2/RQ3): locality metrics on the saved leaf streams
+3. W4 sweep is running (`experiments/overnight.sh w4 4`; status in `results/overnight/STATUS`).
+   An hourly CronCreate check at :17 (session-only) verifies, reports and commits. Then W5 (BMv2).
+4. (done) W3 (RQ2/RQ3): locality metrics on the saved leaf streams
    (`results/w2/{grouped,forward}/leaves/seed*_dp_DT_depth*.npy`, `replay_mask_seed*.npy`).
    - Three orderings: file order, within-second shuffle, and flow-end time.
    - Three streams: full, benign-only, per-phase.

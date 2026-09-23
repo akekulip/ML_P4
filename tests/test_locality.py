@@ -33,3 +33,13 @@ def test_reuse_distance_counts_distinct_leaves_between_accesses():
 def test_windowed_js_between_consecutive_windows():
     assert windowed_js(np.array([0, 0, 1, 1]), window=2).tolist() == pytest.approx([1.0])
     assert windowed_js(np.array([0, 1, 0, 1, 0, 1]), window=2).tolist() == pytest.approx([0.0, 0.0])
+
+
+def test_reuse_distance_matches_brute_force_definition_on_random_streams():
+    rng = np.random.default_rng(7)
+    seq = rng.integers(0, 12, 400)
+    expected = []
+    for i, leaf in enumerate(seq):
+        prev = np.flatnonzero(seq[:i] == leaf)
+        expected.append(-1 if len(prev) == 0 else len(set(seq[prev[-1] + 1:i].tolist())))
+    assert reuse_distance(seq).tolist() == expected

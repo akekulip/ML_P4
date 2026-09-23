@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numba
 import numpy as np
 
 __all__ = ["coverage", "working_set", "normalized_entropy", "reuse_distance", "windowed_js"]
@@ -34,32 +35,42 @@ def normalized_entropy(leaf_ids: np.ndarray, n_leaves: int) -> float:
 def reuse_distance(leaf_ids: np.ndarray) -> np.ndarray:
     """Distinct leaves seen strictly between consecutive accesses to the same leaf; -1 = first access.
 
-    Fenwick tree over positions holding a 1 at each leaf's most recent access: O(n log n).
+    Under LRU with capacity K, an access hits iff 0 <= reuse distance < K, so one pass gives the
+    LRU hit rate for every K. Fenwick tree over positions holding a 1 at each leaf's most recent
+    access: O(n log n), compiled with numba.
     """
-    n = len(leaf_ids)
+    ids, dense = np.unique(np.asarray(leaf_ids), return_inverse=True)
+    return _reuse_distance_dense(dense.astype(np.int64), len(ids))
+
+
+@numba.njit(cache=True)
+def _reuse_distance_dense(seq, n_ids):
+    n = len(seq)
     tree = np.zeros(n + 1, dtype=np.int64)
-
-    def add(i: int, v: int) -> None:
-        i += 1
-        while i <= n:
-            tree[i] += v
-            i += i & -i
-
-    def prefix(i: int) -> int:  # sum over positions [0, i)
-        s = 0
-        while i > 0:
-            s += tree[i]
-            i -= i & -i
-        return s
-
-    last: dict[int, int] = {}
+    last = np.full(n_ids, -1, dtype=np.int64)
     out = np.full(n, -1, dtype=np.int64)
-    for i, leaf in enumerate(leaf_ids.tolist()):
-        p = last.get(leaf)
-        if p is not None:
-            out[i] = prefix(i) - prefix(p + 1)
-            add(p, -1)
-        add(i, 1)
+    for i in range(n):
+        leaf = seq[i]
+        p = last[leaf]
+        if p >= 0:
+            s = 0  # prefix(i) - prefix(p + 1)
+            j = i
+            while j > 0:
+                s += tree[j]
+                j -= j & -j
+            j = p + 1
+            while j > 0:
+                s -= tree[j]
+                j -= j & -j
+            out[i] = s
+            j = p + 1
+            while j <= n:
+                tree[j] -= 1
+                j += j & -j
+        j = i + 1
+        while j <= n:
+            tree[j] += 1
+            j += j & -j
         last[leaf] = i
     return out
 

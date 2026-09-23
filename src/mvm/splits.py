@@ -23,7 +23,7 @@ import pandas as pd
 
 from mvm.features import DP_CAT, DP_NUM
 
-__all__ = ["SPLIT_MODES", "TRAIN_MIX", "build_keys", "sample_pools", "load_rows", "iter_replay"]
+__all__ = ["SPLIT_MODES", "TRAIN_MIX", "build_keys", "sample_pools", "load_rows", "iter_replay", "replay_order"]
 
 SPLIT_MODES = ("random", "grouped", "forward")
 TRAIN_MIX = {"normal": 300_000, "default": 20_000}
@@ -127,3 +127,11 @@ def iter_replay(parquet_dir: Path, keys: pd.DataFrame, replay: np.ndarray, colum
         kf = kf[m]
         order = np.argsort(df.ts.to_numpy(), kind="stable")
         yield df.iloc[order], kf.hour.to_numpy()[order], kf.global_idx.to_numpy()[order]
+
+
+def replay_order(keys: pd.DataFrame, replay: np.ndarray) -> np.ndarray:
+    """global_idx of replay rows in exactly the order iter_replay yields them
+    (file by file, stable-sorted by ts within each file)."""
+    sel = keys[replay[keys.global_idx.to_numpy()]]
+    order = np.lexsort((sel.ts.to_numpy(), sel.file_idx.to_numpy()))  # lexsort is stable
+    return sel.global_idx.to_numpy()[order]
