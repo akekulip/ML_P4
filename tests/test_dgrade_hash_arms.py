@@ -147,3 +147,11 @@ def test_hash_seed_changes_slots_and_the_legacy_seed_does_not():
     a = NetBeaconSim(seed=1, hash_seed=7, **kw).run(pk)["slot"]
     assert np.array_equal(a, NetBeaconSim(seed=2, hash_seed=7, **kw).run(pk)["slot"])
     assert not np.array_equal(a, NetBeaconSim(seed=1, hash_seed=8, **kw).run(pk)["slot"])
+
+
+def test_hash_unique_composes_to_flow_hash():
+    from dgrade.netbeacon_sim import hash_unique, tuple_table
+    t = _tuples(3000)
+    uniq, inv = tuple_table(*t)
+    for kind in ("crc", "xorsalt", "poly", "polyirr", "tab"):
+        assert np.array_equal(hash_unique(uniq, kind, 6)[inv], flow_hash(*t, kind=kind, key_seed=6))

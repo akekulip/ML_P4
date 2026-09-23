@@ -54,7 +54,7 @@ from dgrade.netbeacon import (
 __all__ = [
     "FALLBACK_COLLISION", "FALLBACK_EMPTY", "FALLBACK_SHORT", "MEMO", "NEW_OWNER", "OWNER", "REJECTED",
     "NetBeaconSim", "StubModels", "TableModels", "crc32_flow_hash", "crc_poly", "flow_hash", "flow_ids",
-    "irreducible_reflected_poly", "is_irreducible", "make_packets", "summarize",
+    "hash_unique", "irreducible_reflected_poly", "is_irreducible", "make_packets", "summarize", "tuple_table",
 ]
 
 # Per-packet outcome codes.
@@ -189,18 +189,17 @@ def _tuple_bytes(r) -> bytes:
             + int(r[3]).to_bytes(2, "big") + bytes([int(r[4])]))
 
 
-def flow_hash(src_ip, dst_ip, src_port, dst_port, proto, kind: str = "crc", key_seed: int | None = None) -> np.ndarray:
-    """32-bit flow hash of sw:547 with both ``@symmetric`` pairs normalised to ascending order.
-
-    ``kind``: ``crc`` is NetBeacon's CRC32; ``xorsalt`` prepends a secret 4-byte salt (CRC is affine
-    over GF(2), so this shifts every hash by one constant and changes no collision); ``poly`` uses
-    a secret random polynomial and ``polyirr`` a secret irreducible polynomial (both change which
-    tuples collide; keyed-CRC collision bounds assume irreducibility); ``tab`` is tabulation hashing, a
-    nonlinear reference. ``key_seed`` draws the secret."""
+def tuple_table(src_ip, dst_ip, src_port, dst_port, proto) -> tuple[np.ndarray, np.ndarray]:
+    """Distinct symmetric 5-tuples (each ``@symmetric`` pair sorted ascending) and the map from packets to them."""
     a, b = np.minimum(src_ip, dst_ip), np.maximum(src_ip, dst_ip)
     p, q = np.minimum(src_port, dst_port), np.maximum(src_port, dst_port)
     tup = np.stack([a, b, p, q, proto], axis=1).astype(np.int64)
     uniq, inv = np.unique(tup, axis=0, return_inverse=True)
+    return uniq, inv.reshape(-1)
+
+
+def hash_unique(uniq: np.ndarray, kind: str = "crc", key_seed: int | None = None) -> np.ndarray:
+    """32-bit hash of each distinct tuple of :func:`tuple_table` (see :func:`flow_hash` for the kinds)."""
     if kind != "crc" and key_seed is None:
         raise ValueError(f"hash kind {kind!r} needs a key_seed")
     rng = np.random.default_rng(key_seed)
@@ -225,7 +224,19 @@ def flow_hash(src_ip, dst_ip, src_port, dst_port, proto, kind: str = "crc", key_
             h.append(v)
     else:
         raise ValueError(f"unknown hash kind {kind!r}")
-    return np.asarray(h, dtype=np.uint32)[inv.reshape(-1)]
+    return np.asarray(h, dtype=np.uint32)
+
+
+def flow_hash(src_ip, dst_ip, src_port, dst_port, proto, kind: str = "crc", key_seed: int | None = None) -> np.ndarray:
+    """32-bit flow hash of sw:547 with both ``@symmetric`` pairs normalised to ascending order.
+
+    ``kind``: ``crc`` is NetBeacon's CRC32; ``xorsalt`` prepends a secret 4-byte salt (CRC is affine
+    over GF(2), so this shifts every hash by one constant and changes no collision); ``poly`` uses
+    a secret random polynomial and ``polyirr`` a secret irreducible polynomial (both change which
+    tuples collide; keyed-CRC collision bounds assume irreducibility); ``tab`` is tabulation hashing, a
+    nonlinear reference. ``key_seed`` draws the secret."""
+    uniq, inv = tuple_table(src_ip, dst_ip, src_port, dst_port, proto)
+    return hash_unique(uniq, kind, key_seed)[inv]
 
 
 def crc32_flow_hash(src_ip, dst_ip, src_port, dst_port, proto, salt: int | None = None) -> np.ndarray:
@@ -306,12 +317,19 @@ class NetBeaconSim:
     seed: int | None = None
     hash_kind: str = "crc"               # crc | xorsalt | poly | tab (see :func:`flow_hash`)
     hash_seed: int | None = None         # draws the hash secret, independent of the clock
+    takeover_refresh: bool = False       # robustness switch: a takeover also refreshes last_classified (sw:626 does not)
+    wrap_window: bool = True             # robustness switch: False uses an unwrapped clock (no 4.295 s eviction window)
     square: Callable[[int], int] = field(default=sqr)
 
-    def run(self, pk: np.ndarray, isolate: np.ndarray | None = None) -> dict[str, np.ndarray]:
+    def run(self, pk: np.ndarray, isolate: np.ndarray | None = None, force_slot: np.ndarray | None = None,
+            force_hash: np.ndarray | None = None, force_long: np.ndarray | None = None) -> dict[str, np.ndarray]:
         """Replay ``pk``. With ``isolate`` (a flow id per packet, e.g. from :func:`flow_ids`), every
         flow gets its own slot and a never-claimed slot is always claimable: the counterfactual
-        "this flow had a slot", used as the full-model reference for H1."""
+        "this flow had a slot", used as the full-model reference for H1.
+
+        ``force_slot`` (int, -1 = use the hash), ``force_hash`` (32-bit identity used where a slot is forced) and
+        ``force_long`` (bool) override the hash-derived slot, the flow identity and the flow-size gate for chosen
+        packets. They model injected flows analytically (an adversary given slot control); no hash search is done."""
         pk = np.asarray(pk)
         if np.any(np.diff(pk["ts_ns"]) < 0):
             raise ValueError("packets must be in timestamp order")
@@ -323,7 +341,11 @@ class NetBeaconSim:
         rng = np.random.default_rng(self.seed)
         salt = int(rng.integers(0, 2**32)) if self.keyed else None
         offset = int(rng.integers(0, 2**32)) if self.clock_offset_ns is None else int(self.clock_offset_ns)
-        if isolate is None:
+        fully_forced = force_slot is not None and bool(np.all(np.asarray(force_slot) >= 0))
+        if isolate is None and fully_forced:
+            fh = np.asarray(force_hash, dtype=np.uint32)
+            slot, S = np.asarray(force_slot, dtype=np.int64), self.n_slots
+        elif isolate is None:
             if self.hash_kind != "crc":
                 fh = flow_hash(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"],
                                self.hash_kind, self.hash_seed)
@@ -335,10 +357,19 @@ class NetBeaconSim:
             iso = np.asarray(isolate, dtype=np.int64)
             fh = (iso + 1).astype(np.uint32)
             slot, S = iso, int(iso.max()) + 1 if n else 1
+        if force_slot is not None and not fully_forced:
+            fs = np.asarray(force_slot, dtype=np.int64)
+            on = fs >= 0
+            slot = np.where(on, fs, slot)
+            fh = np.where(on, np.asarray(force_hash, dtype=np.uint32), fh)
         pkt_code = self.models.pkt_codes(pk)
         long_ = self.models.flow_size(pk) > FLOW_SIZE_LONG_THRESHOLD
+        if force_long is not None:
+            long_ = long_ | np.asarray(force_long, dtype=bool)
         t32 = (pk["ts_ns"].astype(np.int64) + offset) & _M32
         now_a, ipd_a = (t32 >> 20).tolist(), (t32 >> 10).tolist()
+        if not self.wrap_window:
+            now_a = (((pk["ts_ns"].astype(np.int64) + offset)) >> 20).tolist()      # unwrapped clock
         rejected = ~np.isin(pk["proto"], (6, 17)) | ((pk["proto"] == 17) & (pk["src_port"] == 68))
 
         r_hash, r_res, r_lastc, claimed = [0] * S, [0] * S, [0] * S, [False] * S
@@ -380,14 +411,16 @@ class NetBeaconSim:
                 continue
             s, h, L, now = sl_l[i], fh_l[i], ln[i], now_a[i]
             if h != r_hash[s]:                                    # new flow at this slot (sw:606)
-                lastc = (now - r_lastc[s]) & _M32                 # sw:268
+                lastc = (now - r_lastc[s]) & _M32 if self.wrap_window else now - r_lastc[s]      # sw:268
                 if not lg_l[i]:
                     outcome[i] = FALLBACK_SHORT
-                elif r_res[s] < 50 and lastc < self.timeout_units and (claimed[s] or isolate is None):
+                elif r_res[s] < 50 and lastc < self.timeout_units and (claimed[s] or (isolate is None and self.wrap_window)):
                     outcome[i] = FALLBACK_COLLISION if claimed[s] else FALLBACK_EMPTY
                 else:                                             # takeover (sw:610-620)
                     outcome[i] = NEW_OWNER
                     claimed[s] = True
+                    if self.takeover_refresh:
+                        r_lastc[s] = now
                     r_hash[s], r_pk[s], r_by[s], r_mn[s], r_mx[s] = h, 1, L, L, L
                     r_ps[s] = sq(L >> 2)
                     r_lts[s], r_mipd[s] = ipd_a[i], _M32

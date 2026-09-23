@@ -26,6 +26,8 @@ from dgrade.netbeacon_sim import (
     NetBeaconSim,
     TableModels,
     flow_ids,
+    hash_unique,
+    tuple_table,
 )
 from dgrade.pcap import read_pcap
 
@@ -47,15 +49,30 @@ def load_day(day: str) -> np.ndarray:
     return pk
 
 
-class OracleGate(TableModels):
-    """Shipped tables, except that the flow-size gate is the true long-flow label."""
+class CachedModels(TableModels):
+    """Shipped tables with the per-packet lookups precomputed once per day; ``long_flag`` (oracle gate) replaces the
+    flow-size score with the true long-flow label."""
 
-    def __init__(self, tables, long_flag: np.ndarray):
+    def __init__(self, tables, pkt_code, flow_score, long_flag=None):
         super().__init__(tables)
-        self.long_flag = long_flag
+        self.pc, self.fs, self.long_flag = pkt_code, flow_score, long_flag
 
-    def flow_size(self, pk: np.ndarray) -> np.ndarray:
-        return np.where(self.long_flag, 100, 0)
+    def pkt_codes(self, pk):
+        return self.pc
+
+    def flow_size(self, pk):
+        return self.fs if self.long_flag is None else np.where(self.long_flag, 100, 0)
+
+
+def prep(day: str) -> None:
+    """Once per day: distinct tuples, oracle long-flow flags, and the shipped model's per-packet lookups."""
+    pk = load_day(day)
+    uniq, inv = tuple_table(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"])
+    fid = flow_ids(pk, 1 << 62)
+    tables = TableModels(load_tables(ART))
+    np.savez(OUT / f"prep_{day}.npz", uniq=uniq, inv=inv.astype(np.int32), long_flag=(np.bincount(fid)[fid] > 50),
+             pkt_code=tables.pkt_codes(pk).astype(np.int16), flow_score=tables.flow_size(pk).astype(np.int16))
+    print("prepared", day, len(uniq), "distinct tuples")
 
 
 def run(job: str) -> None:
@@ -63,14 +80,13 @@ def run(job: str) -> None:
     day, gate, kind, *seed = left.split(":")
     hseed = int(seed[0]) if seed else None
     pk = load_day(day)
-    tables = load_tables(ART)
-    if gate == "oracle":
-        fid = flow_ids(pk, 1 << 62)
-        models = OracleGate(tables, (np.bincount(fid)[fid] > 50))
-    else:
-        models = TableModels(tables)
-    sim = NetBeaconSim(models=models, clock_offset_ns=int(g) * (WRAP_NS // GRID), hash_kind=kind, hash_seed=hseed)
-    out = sim.run(pk)
+    z = np.load(OUT / f"prep_{day}.npz")
+    models = CachedModels(load_tables(ART), z["pkt_code"].astype(np.int64), z["flow_score"].astype(np.int64),
+                          z["long_flag"] if gate == "oracle" else None)
+    fh = hash_unique(z["uniq"], kind, hseed)[z["inv"]]
+    slot = (fh & 0xFFFF).astype(np.int64)
+    sim = NetBeaconSim(models=models, clock_offset_ns=int(g) * (WRAP_NS // GRID))
+    out = sim.run(pk, force_slot=slot, force_hash=fh)
     sec = (pk["ts_ns"] // 10**9).astype(np.int64)
     oc = out["outcome"]
     per_sec = {name: np.bincount(sec, weights=(oc == code), minlength=120)
@@ -85,5 +101,7 @@ def run(job: str) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--job", required=True)
-    run(ap.parse_args().job)
+    ap.add_argument("--job")
+    ap.add_argument("--prep")
+    a = ap.parse_args()
+    prep(a.prep) if a.prep else run(a.job)
