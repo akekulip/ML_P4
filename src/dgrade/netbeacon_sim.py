@@ -53,7 +53,8 @@ from dgrade.netbeacon import (
 
 __all__ = [
     "FALLBACK_COLLISION", "FALLBACK_EMPTY", "FALLBACK_SHORT", "MEMO", "NEW_OWNER", "OWNER", "REJECTED",
-    "NetBeaconSim", "StubModels", "TableModels", "crc32_flow_hash", "flow_ids", "make_packets", "summarize",
+    "NetBeaconSim", "StubModels", "TableModels", "crc32_flow_hash", "crc_poly", "flow_hash", "flow_ids",
+    "make_packets", "summarize",
 ]
 
 # Per-packet outcome codes.
@@ -98,17 +99,82 @@ def make_packets(**cols) -> np.ndarray:
     return out
 
 
-def crc32_flow_hash(src_ip, dst_ip, src_port, dst_port, proto, salt: int | None = None) -> np.ndarray:
-    """32-bit flow hash of sw:547 with both ``@symmetric`` pairs normalised. ``salt`` prepends a
-    4-byte per-boot key (the keyed-hash baseline)."""
+_STD_POLY = 0xEDB88320    # reflected CRC-32, the polynomial zlib uses
+
+
+def _crc_table(poly: int) -> list[int]:
+    t = []
+    for b in range(256):
+        c = b
+        for _ in range(8):
+            c = (c >> 1) ^ poly if c & 1 else c >> 1
+        t.append(c)
+    return t
+
+
+_TABLES: dict[int, list[int]] = {}
+
+
+def crc_poly(msg: bytes, poly: int = _STD_POLY, init: int = 0xFFFFFFFF, xorout: int = 0xFFFFFFFF) -> int:
+    """Reflected CRC-32 with an arbitrary polynomial (``poly`` in reflected form: its top bit must be
+    set for a degree-32 polynomial with a constant term). ``poly=0xEDB88320`` equals ``zlib.crc32``."""
+    tab = _TABLES.get(poly)
+    if tab is None:
+        tab = _TABLES[poly] = _crc_table(poly)
+    c = init
+    for b in msg:
+        c = tab[(c ^ b) & 0xFF] ^ (c >> 8)
+    return c ^ xorout
+
+
+def _tuple_bytes(r) -> bytes:
+    return (int(r[0]).to_bytes(4, "big") + int(r[1]).to_bytes(4, "big") + int(r[2]).to_bytes(2, "big")
+            + int(r[3]).to_bytes(2, "big") + bytes([int(r[4])]))
+
+
+def flow_hash(src_ip, dst_ip, src_port, dst_port, proto, kind: str = "crc", key_seed: int | None = None) -> np.ndarray:
+    """32-bit flow hash of sw:547 with both ``@symmetric`` pairs normalised to ascending order.
+
+    ``kind``: ``crc`` is NetBeacon's CRC32; ``xorsalt`` prepends a secret 4-byte salt (CRC is affine
+    over GF(2), so this shifts every hash by one constant and changes no collision); ``poly`` uses
+    a secret random polynomial (changes which tuples collide); ``tab`` is tabulation hashing, a
+    nonlinear reference. ``key_seed`` draws the secret."""
     a, b = np.minimum(src_ip, dst_ip), np.maximum(src_ip, dst_ip)
     p, q = np.minimum(src_port, dst_port), np.maximum(src_port, dst_port)
     tup = np.stack([a, b, p, q, proto], axis=1).astype(np.int64)
     uniq, inv = np.unique(tup, axis=0, return_inverse=True)
-    prefix = b"" if salt is None else int(salt & _M32).to_bytes(4, "big")
-    h = np.array([zlib.crc32(prefix + int(r[0]).to_bytes(4, "big") + int(r[1]).to_bytes(4, "big")
-                             + int(r[2]).to_bytes(2, "big") + int(r[3]).to_bytes(2, "big") + bytes([int(r[4])]))
-                  for r in uniq], dtype=np.uint32)
+    rng = np.random.default_rng(key_seed)
+    if kind == "crc":
+        h = [zlib.crc32(_tuple_bytes(r)) for r in uniq]
+    elif kind == "xorsalt":
+        salt = int(rng.integers(0, 2**32)).to_bytes(4, "big")
+        h = [zlib.crc32(salt + _tuple_bytes(r)) for r in uniq]
+    elif kind == "poly":
+        poly = int(rng.integers(0, 2**31)) | 0x80000000   # degree 32 with a constant term
+        h = [crc_poly(_tuple_bytes(r), poly) for r in uniq]
+    elif kind == "tab":
+        tabs = rng.integers(0, 2**32, size=(13, 256), dtype=np.uint64)
+        h = []
+        for r in uniq:
+            v = 0
+            for k, byte in enumerate(_tuple_bytes(r)):
+                v ^= int(tabs[k, byte])
+            h.append(v)
+    else:
+        raise ValueError(f"unknown hash kind {kind!r}")
+    return np.asarray(h, dtype=np.uint32)[inv.reshape(-1)]
+
+
+def crc32_flow_hash(src_ip, dst_ip, src_port, dst_port, proto, salt: int | None = None) -> np.ndarray:
+    """Backward-compatible wrapper: ``salt`` prepends a 4-byte key (an XOR-salt, see :func:`flow_hash`)."""
+    if salt is None:
+        return flow_hash(src_ip, dst_ip, src_port, dst_port, proto, "crc")
+    a, b = np.minimum(src_ip, dst_ip), np.maximum(src_ip, dst_ip)
+    p, q = np.minimum(src_port, dst_port), np.maximum(src_port, dst_port)
+    tup = np.stack([a, b, p, q, proto], axis=1).astype(np.int64)
+    uniq, inv = np.unique(tup, axis=0, return_inverse=True)
+    prefix = int(salt & _M32).to_bytes(4, "big")
+    h = np.array([zlib.crc32(prefix + _tuple_bytes(r)) for r in uniq], dtype=np.uint32)
     return h[inv.reshape(-1)]
 
 
@@ -173,8 +239,10 @@ class NetBeaconSim:
     memo_size: int = 1500                # ctl:32 Register_Table_Size / 2 (ctl:53)
     memo_delay_ns: int = 0
     clock_offset_ns: int | None = None   # switch clock at ts_ns == 0; None draws one from ``seed``
-    keyed: bool = False
+    keyed: bool = False                  # legacy: True means hash_kind="xorsalt" drawn from ``seed``
     seed: int | None = None
+    hash_kind: str = "crc"               # crc | xorsalt | poly | tab (see :func:`flow_hash`)
+    hash_seed: int | None = None         # draws the hash secret, independent of the clock
     square: Callable[[int], int] = field(default=sqr)
 
     def run(self, pk: np.ndarray, isolate: np.ndarray | None = None) -> dict[str, np.ndarray]:
@@ -189,7 +257,11 @@ class NetBeaconSim:
         salt = int(rng.integers(0, 2**32)) if self.keyed else None
         offset = int(rng.integers(0, 2**32)) if self.clock_offset_ns is None else int(self.clock_offset_ns)
         if isolate is None:
-            fh = crc32_flow_hash(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"], salt)
+            if self.hash_kind != "crc":
+                fh = flow_hash(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"],
+                               self.hash_kind, self.hash_seed)
+            else:
+                fh = crc32_flow_hash(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"], salt)
             S = self.n_slots
             slot = (fh & (S - 1)) if S & (S - 1) == 0 else fh % S
         else:
