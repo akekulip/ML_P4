@@ -73,6 +73,8 @@ def parse_job(job: str) -> tuple[str, int | None, int]:
     the clock is GRID/30 of the 4.295 s wrap period."""
     left, _, g = job.partition("@")
     kind, _, seed = left.partition(":")
+    if kind not in ("iso", "crc") and not seed:
+        raise ValueError(f"job {job!r}: hash kind {kind!r} needs a seed (KIND:SEED@GRID)")
     return kind, (int(seed) if seed else None), int(g) * (WRAP_NS // GRID)
 
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dgrade.netbeacon_sim import FALLBACK_COLLISION, NEW_OWNER, OWNER
+from dgrade.netbeacon_sim import FALLBACK_COLLISION, FALLBACK_SHORT, NEW_OWNER, OWNER
 
 __all__ = ["FlowIndex", "downgraded_flows"]
 
@@ -31,13 +31,16 @@ class FlowIndex:
 
 
 def downgraded_flows(outcome: np.ndarray, idx: FlowIndex) -> np.ndarray:
-    """Boolean per flow: refused a slot by an active holder, or took a slot again after holding one
-    (docs/preregistration.md, change log of 2026-09-23). Empty-slot refusals and predicted-short
-    flows are not counted."""
+    """Boolean per flow: refused a slot by an active holder, or displaced after holding one (took a slot
+    again, or fell back as "predicted short" once it had held one). Empty-slot refusals and flows that
+    were predicted short from their first packet are not counted (docs/preregistration.md)."""
     oc = np.asarray(outcome)[idx.order]
     coll = np.bincount(idx.seg, weights=(oc == FALLBACK_COLLISION), minlength=idx.n_flows) > 0
     owned = ((oc == OWNER) | (oc == NEW_OWNER)).astype(np.int64)
     cs = np.cumsum(owned)
     seen = cs - owned - (cs[idx.start] - owned[idx.start])[idx.seg]     # owned packets earlier in the same flow
-    lost = np.bincount(idx.seg, weights=((oc == NEW_OWNER) & (seen > 0)), minlength=idx.n_flows) > 0
+    # A flow that held a slot and later takes one again, or is answered as "predicted short" although it
+    # once held one (a stored hash mismatch there means the slot was lost), was displaced by contention.
+    lost = np.bincount(idx.seg, weights=(((oc == NEW_OWNER) | (oc == FALLBACK_SHORT)) & (seen > 0)),
+                       minlength=idx.n_flows) > 0
     return coll | lost

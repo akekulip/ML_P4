@@ -95,3 +95,50 @@ def test_hash_seed_and_clock_are_independent():
     assert a["clock_offset_ns"] == b["clock_offset_ns"] == 12345
     c = NetBeaconSim(models=StubModels(), hash_kind="poly", hash_seed=1, clock_offset_ns=999).run(pk)
     assert np.array_equal(a["slot"], c["slot"])
+
+
+# ---- irreducible polynomials and seed requirements (code review 2026-09-23) ----
+
+import pytest  # noqa: E402
+
+from dgrade.netbeacon_sim import is_irreducible  # noqa: E402
+
+
+def test_irreducible_counts_match_known_values():
+    # number of monic irreducible polynomials over GF(2): degree 4 -> 3, 8 -> 30, 10 -> 99
+    for deg, count in ((4, 3), (8, 30), (10, 99)):
+        n = sum(is_irreducible((1 << deg) | low, deg) for low in range(1 << deg))
+        assert n == count, (deg, n)
+
+
+def test_known_reducible_and_irreducible_degree_32():
+    assert not is_irreducible((1 << 32) | 1, 32)                                  # x^32 + 1 = (x+1)^32
+
+
+def test_polyirr_arm_is_irreducible_deterministic_and_symmetric():
+    t = _tuples(2000)
+    a = flow_hash(*t, kind="polyirr", key_seed=4)
+    assert np.array_equal(a, flow_hash(*t, kind="polyirr", key_seed=4))
+    assert not np.array_equal(a, flow_hash(*t, kind="polyirr", key_seed=5))
+    s, d, sp, dp, p = t
+    assert np.array_equal(a, flow_hash(d, s, dp, sp, p, kind="polyirr", key_seed=4))
+    from dgrade.netbeacon_sim import irreducible_reflected_poly
+    for seed in range(5):
+        r = irreducible_reflected_poly(np.random.default_rng(seed))
+        normal = int(f"{r:032b}"[::-1], 2)
+        assert is_irreducible((1 << 32) | normal, 32)
+
+
+def test_keyed_kinds_require_a_seed():
+    with pytest.raises(ValueError):
+        NetBeaconSim(models=StubModels(), hash_kind="poly").run(_many_flows(3))
+    with pytest.raises(ValueError):
+        NetBeaconSim(models=StubModels(), hash_kind="poly", hash_seed=1, keyed=True).run(_many_flows(3))
+
+
+def test_hash_seed_changes_slots_and_the_legacy_seed_does_not():
+    pk = _many_flows(50)
+    kw = {"models": StubModels(), "hash_kind": "poly", "clock_offset_ns": 1}
+    a = NetBeaconSim(seed=1, hash_seed=7, **kw).run(pk)["slot"]
+    assert np.array_equal(a, NetBeaconSim(seed=2, hash_seed=7, **kw).run(pk)["slot"])
+    assert not np.array_equal(a, NetBeaconSim(seed=1, hash_seed=8, **kw).run(pk)["slot"])

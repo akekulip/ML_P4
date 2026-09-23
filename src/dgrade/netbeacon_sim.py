@@ -54,7 +54,7 @@ from dgrade.netbeacon import (
 __all__ = [
     "FALLBACK_COLLISION", "FALLBACK_EMPTY", "FALLBACK_SHORT", "MEMO", "NEW_OWNER", "OWNER", "REJECTED",
     "NetBeaconSim", "StubModels", "TableModels", "crc32_flow_hash", "crc_poly", "flow_hash", "flow_ids",
-    "make_packets", "summarize",
+    "irreducible_reflected_poly", "is_irreducible", "make_packets", "summarize",
 ]
 
 # Per-packet outcome codes.
@@ -127,6 +127,63 @@ def crc_poly(msg: bytes, poly: int = _STD_POLY, init: int = 0xFFFFFFFF, xorout: 
     return c ^ xorout
 
 
+def _pmulmod(a: int, b: int, m: int, deg: int) -> int:
+    """a * b modulo the GF(2) polynomial ``m`` of degree ``deg`` (polynomials as Python ints)."""
+    r = 0
+    while b:
+        if b & 1:
+            r ^= a
+        b >>= 1
+        a <<= 1
+        if (a >> deg) & 1:
+            a ^= m
+    return r
+
+
+def _pgcd(a: int, b: int) -> int:
+    while b:
+        db = b.bit_length()
+        while a and a.bit_length() >= db:
+            a ^= b << (a.bit_length() - db)
+        a, b = b, a
+    return a
+
+
+def _prime_factors(n: int) -> list[int]:
+    out, p = [], 2
+    while n > 1:
+        if n % p == 0:
+            out.append(p)
+            while n % p == 0:
+                n //= p
+        p += 1
+    return out
+
+
+def is_irreducible(m: int, deg: int) -> bool:
+    """Rabin's test over GF(2): ``m`` (bit ``deg`` set) is irreducible iff x^(2^deg) = x mod m and
+    gcd(x^(2^(deg/q)) - x, m) = 1 for every prime q dividing deg."""
+    if not (m >> deg) & 1 or not m & 1:
+        return False
+    x = 2
+    pw = [x]
+    for _ in range(deg):
+        pw.append(_pmulmod(pw[-1], pw[-1], m, deg))       # pw[k] = x^(2^k) mod m
+    if pw[deg] != x:                                       # x < m because deg >= 2
+        return False
+    return all(_pgcd(m, pw[deg // q] ^ x) == 1 for q in _prime_factors(deg))
+
+
+def irreducible_reflected_poly(rng: np.random.Generator) -> int:
+    """A random degree-32 polynomial that is irreducible over GF(2), in the reflected form ``crc_poly``
+    takes. Rejection sampling: about one candidate in 32 is irreducible."""
+    while True:
+        r = (int(rng.integers(0, 2**31)) | 0x80000000)
+        normal = int(f"{r:032b}"[::-1], 2)
+        if is_irreducible((1 << 32) | normal, 32):
+            return r
+
+
 def _tuple_bytes(r) -> bytes:
     return (int(r[0]).to_bytes(4, "big") + int(r[1]).to_bytes(4, "big") + int(r[2]).to_bytes(2, "big")
             + int(r[3]).to_bytes(2, "big") + bytes([int(r[4])]))
@@ -137,12 +194,15 @@ def flow_hash(src_ip, dst_ip, src_port, dst_port, proto, kind: str = "crc", key_
 
     ``kind``: ``crc`` is NetBeacon's CRC32; ``xorsalt`` prepends a secret 4-byte salt (CRC is affine
     over GF(2), so this shifts every hash by one constant and changes no collision); ``poly`` uses
-    a secret random polynomial (changes which tuples collide); ``tab`` is tabulation hashing, a
+    a secret random polynomial and ``polyirr`` a secret irreducible polynomial (both change which
+    tuples collide; keyed-CRC collision bounds assume irreducibility); ``tab`` is tabulation hashing, a
     nonlinear reference. ``key_seed`` draws the secret."""
     a, b = np.minimum(src_ip, dst_ip), np.maximum(src_ip, dst_ip)
     p, q = np.minimum(src_port, dst_port), np.maximum(src_port, dst_port)
     tup = np.stack([a, b, p, q, proto], axis=1).astype(np.int64)
     uniq, inv = np.unique(tup, axis=0, return_inverse=True)
+    if kind != "crc" and key_seed is None:
+        raise ValueError(f"hash kind {kind!r} needs a key_seed")
     rng = np.random.default_rng(key_seed)
     if kind == "crc":
         h = [zlib.crc32(_tuple_bytes(r)) for r in uniq]
@@ -151,6 +211,9 @@ def flow_hash(src_ip, dst_ip, src_port, dst_port, proto, kind: str = "crc", key_
         h = [zlib.crc32(salt + _tuple_bytes(r)) for r in uniq]
     elif kind == "poly":
         poly = int(rng.integers(0, 2**31)) | 0x80000000   # degree 32 with a constant term
+        h = [crc_poly(_tuple_bytes(r), poly) for r in uniq]
+    elif kind == "polyirr":
+        poly = irreducible_reflected_poly(rng)
         h = [crc_poly(_tuple_bytes(r), poly) for r in uniq]
     elif kind == "tab":
         tabs = rng.integers(0, 2**32, size=(13, 256), dtype=np.uint64)
@@ -253,6 +316,10 @@ class NetBeaconSim:
         if np.any(np.diff(pk["ts_ns"]) < 0):
             raise ValueError("packets must be in timestamp order")
         n = len(pk)
+        if self.keyed and self.hash_kind != "crc":
+            raise ValueError("keyed=True is the legacy XOR-salt switch; use hash_kind instead")
+        if self.hash_kind != "crc" and self.hash_seed is None:
+            raise ValueError(f"hash_kind {self.hash_kind!r} needs a hash_seed")
         rng = np.random.default_rng(self.seed)
         salt = int(rng.integers(0, 2**32)) if self.keyed else None
         offset = int(rng.integers(0, 2**32)) if self.clock_offset_ns is None else int(self.clock_offset_ns)
@@ -484,7 +551,7 @@ def summarize(out: dict[str, np.ndarray], idle_ns: int = 256_000_000) -> pd.Data
         coll = int(np.sum(oc == FALLBACK_COLLISION))
         owned = np.isin(oc, (NEW_OWNER, OWNER))
         first_owned = int(np.argmax(owned)) if owned.any() else len(oc)
-        resets = int(np.sum(oc[first_owned + 1:] == NEW_OWNER))
+        resets = int(np.sum(np.isin(oc[first_owned + 1:], (NEW_OWNER, FALLBACK_SHORT))))
         eligible = bool(g.predicted_long.any())
         first = g.iloc[0]
         rows.append({"flow_id": int(f), "src_ip": first.src_ip, "dst_ip": first.dst_ip,

@@ -14,7 +14,7 @@ def _reference(oc, f):
         o = g.oc.to_numpy()
         owned = np.isin(o, (1, 2))
         seen = np.cumsum(owned) - owned
-        out[k] = bool(coll[k]) or bool(((o == 2) & (seen > 0)).any())
+        out[k] = bool(coll[k]) or bool((((o == 2) | (o == 4)) & (seen > 0)).any())
     return np.array([out[k] for k in sorted(out)])
 
 
@@ -35,3 +35,23 @@ def test_flow_index_handles_noncontiguous_ids_and_order():
     oc = np.array([2, 2, 3, 2, 1, 2], dtype=np.int8)
     # flow 7: packets 0 (NEW_OWNER), 2 (collision) -> downgraded; flow 3: 1, 3 (NEW_OWNER twice) -> lost slot
     assert np.array_equal(downgraded_flows(oc, idx), [True, True, False])
+
+
+def test_slot_lost_then_predicted_short_counts_as_downgraded():
+    # owner (2), owner (1), then the slot is lost and later packets are predicted short (4): downgraded
+    f = np.array([1, 1, 1, 1, 2, 2])
+    oc = np.array([2, 1, 4, 4, 2, 1], dtype=np.int8)
+    idx = FlowIndex(f)
+    assert np.array_equal(downgraded_flows(oc, idx), [True, False])
+
+
+def test_predicted_short_from_the_start_is_not_downgraded():
+    f = np.array([1, 1, 1])
+    oc = np.array([4, 4, 4], dtype=np.int8)
+    assert not downgraded_flows(oc, FlowIndex(f)).any()
+
+
+def test_empty_slot_refusal_is_not_downgraded():
+    f = np.array([1, 1, 1])
+    oc = np.array([6, 6, 2], dtype=np.int8)      # refused an empty slot, then took it: not contention
+    assert not downgraded_flows(oc, FlowIndex(f)).any()
