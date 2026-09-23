@@ -80,7 +80,7 @@ def build_targeted(victims: list[Victim], mode: str, span_ns: int, rng: np.rando
     for k, v in enumerate(victims):
         if mode == "preempt":
             keep.append(k)
-            start.append(max(0, v.first_ts - LEAD_NS))
+            start.append(v.first_ts - LEAD_NS)      # may be before the slice: the adversary was already holding
         elif v.gap_start_ts is None:
             failed.append(v.flow)
         else:

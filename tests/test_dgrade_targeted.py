@@ -53,7 +53,7 @@ def test_preempt_holders_start_before_the_victim_and_follow_its_slot():
     assert len(np.unique(a.flow)) == 2
     for k, vic in enumerate(v):
         t = np.sort(a.pk["ts_ns"][a.flow == k])
-        assert t[0] == max(0, vic.first_ts - 500 * MS) and np.all(np.diff(t) == 250 * MS) and t[-1] <= SPAN
+        assert t[0] == vic.first_ts - 500 * MS and np.all(np.diff(t) == 250 * MS) and t[-1] <= SPAN
         assert np.all(a.slot[a.flow == k] == vic.slot)
 
 
@@ -74,3 +74,11 @@ def test_random_holders_count_slots_and_cadence():
     assert len(np.unique(a.flow)) == 200 and np.all(a.slot < 1000)
     assert a.slot[np.unique(a.flow, return_index=True)[1]].min() >= 0
     assert np.all(np.diff(np.sort(a.pk["ts_ns"][a.flow == 0])) == 250 * MS)
+
+
+def test_preempt_holder_may_start_before_the_slice_when_the_victim_starts_at_zero():
+    pk, f = _stream()
+    idx = FlowIndex(f)
+    v = select_victims(pk, idx, np.array([10, 11, 12, 13, 14]), "top", k=1)      # flow 0 starts at t = 0
+    a = build_targeted(v, "preempt", span_ns=SPAN, rng=np.random.default_rng(0))
+    assert a.pk["ts_ns"].min() == -500 * MS
