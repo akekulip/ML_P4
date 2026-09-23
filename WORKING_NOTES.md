@@ -448,3 +448,11 @@ the backend). The P4/BMv2 part is the deployment proof.
 - G1's bimodal gap is real: 3 of 30 clock starts give a gap near +0.33, driven by one uTorrent flow of about 40,000 packets. The G1 erratum says so.
 - The pre-registration was amended after a code review and a partial look at the data; see its change log.
 - Next: read the re-review, then revise the plan and move to G2 (targeted-displacement arm: known hash against secret irreducible polynomial), which needs a MAWI trace day fixed in the pre-registration.
+
+## 2026-09-23: G2a done (`docs/results_g2a.md`)
+- MAWI slices: two pre-registered days (2022-09-14, 2023-03-15), first 120 s, headers only. 240 runs (oracle and model gates, 30 draws each).
+- Shipped flow-size gate: 9% to 11% of flows and 26% to 33% of packets downgraded. Oracle gate: 0.03% to 0.05% of flows and 1.6% to 3.2% of packets.
+- Keyed against unkeyed: the sign flips by day under the oracle gate; under the model gate keyed draws are all lower. No consistent benign effect. The G1b "lucky shipped hash" remark does not generalise.
+- The clock-wrap artefact refuses as many packets at empty slots as true collisions do under the oracle gate.
+- Per-run memory is about 7 GB even after the per-day precomputation. Parallelism 3.
+- In progress: K0 baselines (keyed hash at its own clock, 116 runs), then the chunked emulator loop, then the G2b fill pilot.
