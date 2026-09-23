@@ -22,7 +22,7 @@ the backend). The P4/BMv2 part is the deployment proof.
 - [ ] **W1:** repo, uv env, data download, check ts/order/overlap, locality pilot (DT depth 8, C(32)) — go/no-go
 - [x] **W2 (done 2026-09-22, stand-in training pools):** RQ1 — LR/DT/RF, depth and ccp sweep, metrics with bootstrap CIs, feature ablations
 - [x] **W3 (done 2026-09-22 21:51, stand-in pools):** RQ2/RQ3 — locality metrics, Pareto frontier of F1 vs W90, drift (JS), shuffled vs chronological, per-phase windows
-- [ ] **W4:** RQ4 — cache simulator (static, LRU, LFU, decayed-LFU, oracle), K sweep, recovery time, regret, churn
+- [x] **W4 (done 2026-09-22 22:00, stand-in pools):** RQ4 — cache simulator (static, LRU, LFU, decayed-LFU, oracle), K sweep, recovery time, regret, churn
 - [ ] **W5:** BMv2 — mvm.p4, controller, write-rate measurement, fidelity
 - [ ] **W6:** BMv2 end-to-end replay and latency (labeled "BMv2 ≠ ASIC"); NF-ToN-IoT-v3 cross-check as stretch
 - [ ] **W7:** report and slides
@@ -206,12 +206,52 @@ the backend). The P4/BMv2 part is the deployment proof.
   and OOM kills leaving the Pool hung. With per-process units (`experiments/overnight.sh`) and category
   codes, one unit takes about 5 minutes at a 4.8 GB peak, and the whole stage takes 9 minutes.
 
+## W4 results (2026-09-22) — full tables in `docs/results_w4.md`
+- **Hit rate by policy** (grouped split, full stream, depth 10, mean over 5 seeds):
+
+  | Policy | K=1 | K=4 | K=8 | K=32 | churn at K=8 |
+  |---|---|---|---|---|---|
+  | Belady (offline optimum) | .719 | .961 | .987 | .998 | .013 |
+  | decayed LFU γ=.99 | .580 | .937 | .980 | .997 | .039 writes/flow |
+  | LRU | .580 | .928 | .978 | .997 | .045 |
+  | hourly oracle | .537 | .912 | .971 | .996 | – |
+  | LFU | .580 | .742 | .887 | .982 | .226 |
+  | best static in hindsight C(K) | .256 | .638 | .826 | .974 | – |
+  | static top-K from first hour | .004 | .006 | .007 | .007 | – |
+
+  - The first hour is benign-only (04-02), weeks before any attack, which is why the first-hour static table is useless.
+  - Regret of decayed LFU vs Belady at K=8: .007 (full stream, depth 10) and .016 (depth None).
+- **Benign stream, depth 10, K=8:** Belady .929, decayed LFU .888.
+- **LFU is the one bad online policy.** It holds on to stale phase popularity: it has 5× the churn of LRU
+  and recovers slowest after phase changes.
+- **Adaptation, measured in flows** (`experiments/w4_recovery.py`, K=8, depth 10):
+  - Online policies reach a day's steady hit rate within 0–5,500 flows of a phase boundary;
+    LFU takes up to 11,500.
+  - Excess misses in the first 10k flows: at most about 770 for LRU and decayed LFU, 2,067 for LFU (04-27).
+  - The hourly-bin recovery table was **dropped**: it could not resolve adaptation, which finishes well
+    inside an hour.
+- **Caveats:**
+  - A static policy is not a fair online baseline once phases drift. C(K) is shown as the hindsight bound.
+  - Everything still uses stand-in training pools.
+
+## Morning summary (overnight run, 2026-09-22)
+- **Ran:**
+  - W3: 10/10 units in 9 minutes. Gates passed first; the quick gate caught one bug (non-categorical key columns).
+  - W4: 10/10 units in 9 minutes, plus the recovery analysis.
+  - No unit needed a retry.
+- **Committed** locally as akekulip, with no trailers.
+- **Open items:**
+  - `train_test_network.csv` is still missing; W2–W4 all use stand-in pools.
+  - W5 (BMv2 prototype) is next.
+  - The report and slides (W7) should use the revised framing in `docs/framing.md`.
+
 ## Next action
 1. Philip: re-download `Train_Test_datasets/Train_Test_Network_dataset/train_test_network.csv` on its own, as a single file.
 2. Once it arrives: check the no-`ts` claim and 461,043 rows, match its rows against the full set
    (overlap removal), then re-run the pilot on the real training file.
-3. W4 sweep is running (`experiments/overnight.sh w4 4`; status in `results/overnight/STATUS`).
-   An hourly CronCreate check at :17 (session-only) verifies, reports and commits. Then W5 (BMv2).
+3. W5: BMv2 prototype. Build `p4/mvm.p4` (range-match leaf table, packet-in on miss) and a
+   P4Runtime controller running decayed LFU (γ=.99), K=8, depth-10 tree. Check fidelity against
+   `tree.predict`, and measure the write rate.
 4. (done) W3 (RQ2/RQ3): locality metrics on the saved leaf streams
    (`results/w2/{grouped,forward}/leaves/seed*_dp_DT_depth*.npy`, `replay_mask_seed*.npy`).
    - Three orderings: file order, within-second shuffle, and flow-end time.
