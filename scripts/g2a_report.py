@@ -86,6 +86,25 @@ def main() -> None:
                          f"{cell(d, 'collision_share')} | {cell(d, 'empty_share')} | {cell(d, 'takeovers', False)} | "
                          f"{cell(d, 'memo_share')} |")
         L.append("")
+    L += ["## Keyed against unkeyed at the same clock (grid 0)", "",
+          ("The fixed-clock keyed arm runs at clock grid 0, where the trace starts on a wrap boundary, so its empty-slot "
+           "share is not comparable with the clock-varied average. This table compares like with like: the single unkeyed "
+           "run at grid 0 against the 30 keyed draws at grid 0."), "",
+          ("| day | gate | unkeyed at grid 0: downgraded packets | keyed draws: median [min, max] | keyed draws at or below unkeyed | "
+          "unkeyed at grid 0: collisions / empty refusals | keyed median: collisions / empty refusals |"), "|---|---|---|---|---|---|---|"]
+    for day, dname in DAYS.items():
+        for gate in ("oracle", "model"):
+            u = df[(df.day == day) & (df.gate == gate) & (df.kind == "crc") & (df.grid == 0)]
+            k = df[(df.day == day) & (df.gate == gate) & (df.kind == "polyirr") & (df.grid == 0)]
+            if not len(u) or not len(k):
+                continue
+            u = u.iloc[0]
+            L.append(f"| {dname} | {gate} | {u.pkts_down_share:.3%} | {k.pkts_down_share.median():.3%} "
+                     f"[{k.pkts_down_share.min():.3%}, {k.pkts_down_share.max():.3%}] | "
+                     f"{int((k.pkts_down_share <= u.pkts_down_share).sum())} of {len(k)} | "
+                     f"{u.collision_share:.3%} / {u.empty_share:.3%} | "
+                     f"{k.collision_share.median():.3%} / {k.empty_share.median():.3%} |")
+    L.append("")
     (ROOT / "docs/results_g2a.md").write_text("\n".join(L) + "\n")
     print("\n".join(L))
 
