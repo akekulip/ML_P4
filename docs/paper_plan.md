@@ -179,7 +179,7 @@ Agreed by the expert round table on 2026-09-23 and approved by Philip. The full 
 10. HashPipe-style keep-heavier;
 11. Elastic Sketch Ostracism;
 12. TinyLFU admission;
-13. a SketchFeature-style all-flow sketch (artifact github.com/ISRL-EWHA/SketchFeature; its approximate features cost about 13% F1, 3 MB and 7 stages).
+13. a SketchFeature-style all-flow sketch, in the emulator only: the artifact ships no P4, and the classifier must be retrained on decoded features. Its about 13% F1 cost was measured at 6 MB; the 3 MB, 7-stage figure describes the prototype (see `docs/results_g0.md`).
 
 **Pre-registered hypotheses (one primary metric each):**
 
