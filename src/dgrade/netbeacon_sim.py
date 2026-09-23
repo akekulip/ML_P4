@@ -138,14 +138,20 @@ class TableModels:
         self.t = tables
 
     @staticmethod
-    def _pkt_rows(pk: np.ndarray) -> dict[str, np.ndarray]:
-        return {f: pk[f].astype(np.int64) for f in PKT_FEATURES}
+    def _unique_rows(pk: np.ndarray) -> tuple[dict[str, np.ndarray], np.ndarray]:
+        """Distinct per-packet feature rows and the inverse map: the tables are evaluated once per
+        distinct row, which keeps memory at O(distinct rows x table entries)."""
+        X = np.stack([pk[f].astype(np.int64) for f in PKT_FEATURES], axis=1)
+        uniq, inv = np.unique(X, axis=0, return_inverse=True)
+        return {f: uniq[:, j] for j, f in enumerate(PKT_FEATURES)}, inv.reshape(-1)
 
     def pkt_codes(self, pk: np.ndarray) -> np.ndarray:
-        return self.t.pkt.result_codes(self._pkt_rows(pk))
+        rows, inv = self._unique_rows(pk)
+        return self.t.pkt.result_codes(rows)[inv]
 
     def flow_size(self, pk: np.ndarray) -> np.ndarray:
-        s = self.t.flow_size.predict(self._pkt_rows(pk))
+        rows, inv = self._unique_rows(pk)
+        s = self.t.flow_size.predict(rows)[inv]
         return np.where(s < 0, 0, s)  # a Flow_Size_Tree miss leaves flow_size = 0 (sw:577)
 
     def phase_codes(self, phase: int, feats: pd.DataFrame) -> np.ndarray:
