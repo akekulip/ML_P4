@@ -50,4 +50,5 @@ def test_merge_orders_by_time_and_flags_attacker_packets():
     assert len(m.pk) == len(ben) + len(a.pk)
     assert np.all(np.diff(m.pk["ts_ns"]) >= 0)
     assert m.is_attacker.sum() == len(a.pk) and np.all(m.force_long[m.is_attacker]) and not m.force_long[~m.is_attacker].any()
+    assert np.array_equal(np.sort(m.order), np.arange(len(m.pk))) and np.all(m.pk["ts_ns"] == np.concatenate([ben, a.pk])["ts_ns"][m.order])
     assert np.all(m.slot >= 0) and np.array_equal(m.pk["ts_ns"][~m.is_attacker], ben["ts_ns"])

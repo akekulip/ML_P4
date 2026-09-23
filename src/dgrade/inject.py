@@ -35,6 +35,7 @@ class Merged:
     hash: np.ndarray
     force_long: np.ndarray
     is_attacker: np.ndarray
+    order: np.ndarray     # merged position -> index into concatenate([benign, attacker])
 
 
 def build_fill(f: float, mode: str, n_slots: int, span_ns: int, rng: np.random.Generator,
@@ -67,4 +68,4 @@ def merge_attack(benign: np.ndarray, b_slot: np.ndarray, b_hash: np.ndarray, atk
     h = np.concatenate([b_hash, atk.hash])
     is_atk = np.concatenate([np.zeros(len(benign), dtype=bool), np.ones(len(atk.pk), dtype=bool)])
     o = np.argsort(pk["ts_ns"], kind="stable")
-    return Merged(pk[o], slot[o], h[o], is_atk[o].copy(), is_atk[o])
+    return Merged(pk[o], slot[o], h[o], is_atk[o].copy(), is_atk[o], o)
