@@ -132,6 +132,29 @@ def main() -> None:
                 L.append(f"| {dn} | {f}% | {cfg} | {len(d)} | {d.excess_undef.mean():,.0f} | {d.excess_def.mean():,.0f} | "
                          f"{r:.2f} [{lo:.2f}, {hi:.2f}] | {'pass' if ok2 else 'fail'} | {cost:.2f} | {mult:.2f} | "
                          f"{'n/a' if ok3 is None else ('pass' if ok3 else 'fail')} |")
+    L += ["", "## D2: secret irreducible polynomial under the fill attack", "",
+          ("Prediction (pre-registered): D2 leaves the fill excess within ±10% of undefended. Each side is measured against its own "
+           "no-attack baseline (undefended: unkeyed hash; D2: keyed hash at the same clock, same draw). The ratio is keyed excess over unkeyed "
+           "excess, mean of draws with a bootstrap over draws."), "",
+          "| day | f | draws | unkeyed excess (flows) | keyed excess (flows) | ratio [95% CI] | within ±10% |", "|---|---|---|---|---|---|---|"]
+    for day, dn in DAYS.items():
+        for f in (10, 25):
+            eu, ek = [], []
+            for g in range(30 if (day == "p" and f == 10) else 10):
+                fu, fk = f"b_{day}_oracle_b0l_{f}_at{g}.npz", f"b_{day}_oracle_k0_{f}_at{g}.npz"
+                bu, bk = f"a_{day}_oracle_crc_at{g}.npz", f"a_{day}_oracle_polyirr_{g}_at{g}.npz"
+                if all((OUT / x).exists() for x in (fu, fk, bu, bk)):
+                    eu.append(flows_down(day, fu, "benign_outcome") - flows_down(day, bu))
+                    ek.append(flows_down(day, fk, "benign_outcome") - flows_down(day, bk))
+            if not eu:
+                continue
+            eu, ek = np.array(eu, float), np.array(ek, float)
+            rng = np.random.default_rng(0)
+            i = rng.integers(0, len(eu), (4000, len(eu)))
+            r = ek[i].mean(axis=1) / np.maximum(eu[i].mean(axis=1), 1e-9)
+            lo, hi = np.percentile(r, [2.5, 97.5])
+            L.append(f"| {dn} | {f}% | {len(eu)} | {eu.mean():,.0f} | {ek.mean():,.0f} | {ek.mean() / eu.mean():.2f} [{lo:.2f}, {hi:.2f}] | "
+                     f"{'yes' if lo >= 0.9 and hi <= 1.1 else 'no'} |")
     (ROOT / "docs/results_g4a.md").write_text("\n".join(L) + "\n")
     print("\n".join(L))
 

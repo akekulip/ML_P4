@@ -87,7 +87,9 @@ def main() -> None:
     L += ["", ("Recovery is measured, as pre-registered, against the *undefended* no-attack run. d1 also lowers the no-attack "
                "baseline (the wrap fix's benign gain), so d1's packet-weighted 'recovery' is mostly not attack mitigation; the "
                "gain specific to rent admission is a d3 row minus the d1 row. Age-only eviction (d3a) evicts holders and slow "
-               "benign flows alike and makes the packet total worse than undefended."), ""]
+               "benign flows alike and makes the packet total worse than undefended. The packet-weighted recovery is exploratory: the "
+               "pre-registered M2 is flow-weighted and fails on both days, and the packet-weighted figure is not consistent across the "
+               "two days, so no claim rests on it."), ""]
     (ROOT / "docs/results_g4a_diagnosis.md").write_text("\n".join(L) + "\n")
     print("\n".join(L))
 
