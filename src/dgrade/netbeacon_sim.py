@@ -52,8 +52,8 @@ from dgrade.netbeacon import (
 )
 
 __all__ = [
-    "FALLBACK_COLLISION", "FALLBACK_SHORT", "MEMO", "NEW_OWNER", "OWNER", "REJECTED",
-    "NetBeaconSim", "StubModels", "TableModels", "crc32_flow_hash", "make_packets", "summarize",
+    "FALLBACK_COLLISION", "FALLBACK_EMPTY", "FALLBACK_SHORT", "MEMO", "NEW_OWNER", "OWNER", "REJECTED",
+    "NetBeaconSim", "StubModels", "TableModels", "crc32_flow_hash", "flow_ids", "make_packets", "summarize",
 ]
 
 # Per-packet outcome codes.
@@ -63,6 +63,8 @@ NEW_OWNER = 2           # first packet of a takeover (sw:608-620)
 FALLBACK_COLLISION = 3  # predicted long, but the slot's incumbent is active and undetermined
 FALLBACK_SHORT = 4      # predicted short: never takes a slot (sw:608)
 REJECTED = 5            # dropped by the parser (prs:58-85)
+FALLBACK_EMPTY = 6      # refused a never-claimed slot: zeroed registers look "active" while now < 256
+                        # units after each clock wrap (sw:219, 259-268, 609). Not contention.
 
 PACKET_DTYPE = np.dtype([
     ("ts_ns", np.int64), ("src_ip", np.uint32), ("dst_ip", np.uint32), ("src_port", np.uint16),
@@ -164,27 +166,37 @@ class NetBeaconSim:
     timeout_units: int = _TIMEOUT_UNITS
     memo_size: int = 1500                # ctl:32 Register_Table_Size / 2 (ctl:53)
     memo_delay_ns: int = 0
-    clock_offset_ns: int = 0             # switch clock at ts_ns == 0
+    clock_offset_ns: int | None = None   # switch clock at ts_ns == 0; None draws one from ``seed``
     keyed: bool = False
     seed: int | None = None
     square: Callable[[int], int] = field(default=sqr)
 
-    def run(self, pk: np.ndarray) -> dict[str, np.ndarray]:
+    def run(self, pk: np.ndarray, isolate: np.ndarray | None = None) -> dict[str, np.ndarray]:
+        """Replay ``pk``. With ``isolate`` (a flow id per packet, e.g. from :func:`flow_ids`), every
+        flow gets its own slot and a never-claimed slot is always claimable: the counterfactual
+        "this flow had a slot", used as the full-model reference for H1."""
         pk = np.asarray(pk)
         if np.any(np.diff(pk["ts_ns"]) < 0):
             raise ValueError("packets must be in timestamp order")
         n = len(pk)
-        salt = int(np.random.default_rng(self.seed).integers(0, 2**32)) if self.keyed else None
-        fh = crc32_flow_hash(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"], salt)
-        slot = (fh & (self.n_slots - 1)) if self.n_slots & (self.n_slots - 1) == 0 else fh % self.n_slots
+        rng = np.random.default_rng(self.seed)
+        salt = int(rng.integers(0, 2**32)) if self.keyed else None
+        offset = int(rng.integers(0, 2**32)) if self.clock_offset_ns is None else int(self.clock_offset_ns)
+        if isolate is None:
+            fh = crc32_flow_hash(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"], salt)
+            S = self.n_slots
+            slot = (fh & (S - 1)) if S & (S - 1) == 0 else fh % S
+        else:
+            iso = np.asarray(isolate, dtype=np.int64)
+            fh = (iso + 1).astype(np.uint32)
+            slot, S = iso, int(iso.max()) + 1 if n else 1
         pkt_code = self.models.pkt_codes(pk)
         long_ = self.models.flow_size(pk) > FLOW_SIZE_LONG_THRESHOLD
-        t32 = (pk["ts_ns"].astype(np.int64) + self.clock_offset_ns) & _M32
+        t32 = (pk["ts_ns"].astype(np.int64) + offset) & _M32
         now_a, ipd_a = (t32 >> 20).tolist(), (t32 >> 10).tolist()
         rejected = ~np.isin(pk["proto"], (6, 17)) | ((pk["proto"] == 17) & (pk["src_port"] == 68))
 
-        S = self.n_slots
-        r_hash, r_res, r_lastc = [0] * S, [0] * S, [0] * S
+        r_hash, r_res, r_lastc, claimed = [0] * S, [0] * S, [0] * S, [False] * S
         r_pk, r_by, r_mn, r_mx, r_ps = [0] * S, [0] * S, [0] * S, [0] * S, [0] * S
         r_lts, r_mipd, r_b1, r_b2, r_epoch = [0] * S, [0] * S, [0] * S, [0] * S, [-1] * S
 
@@ -196,6 +208,7 @@ class NetBeaconSim:
         epoch_init: list[int] = []             # takeover packet index per epoch
         epoch_events: list[list[int]] = []     # event ids per epoch
         ev_phase: list[int] = []
+        ev_pkt: list[int] = []
         ev_feat: list[tuple] = []
         ev_code: dict[int, int] = {}           # 2048 events are evaluated at once (they gate)
 
@@ -225,10 +238,11 @@ class NetBeaconSim:
                 lastc = (now - r_lastc[s]) & _M32                 # sw:268
                 if not lg_l[i]:
                     outcome[i] = FALLBACK_SHORT
-                elif r_res[s] < 50 and lastc < self.timeout_units:
-                    outcome[i] = FALLBACK_COLLISION
+                elif r_res[s] < 50 and lastc < self.timeout_units and (claimed[s] or isolate is None):
+                    outcome[i] = FALLBACK_COLLISION if claimed[s] else FALLBACK_EMPTY
                 else:                                             # takeover (sw:610-620)
                     outcome[i] = NEW_OWNER
+                    claimed[s] = True
                     r_hash[s], r_pk[s], r_by[s], r_mn[s], r_mx[s] = h, 1, L, L, L
                     r_ps[s] = sq(L >> 2)
                     r_lts[s], r_mipd[s] = ipd_a[i], _M32
@@ -263,6 +277,7 @@ class NetBeaconSim:
                     feat = (r_mx[s], r_mipd[s], r_b2[s], r_b1[s], var, avg, r_mn[s])
                     ev = len(ev_phase)
                     ev_phase.append(N)
+                    ev_pkt.append(i)
                     ev_feat.append(feat)
                     epoch_events[e].append(ev)
                     if N == 2048:
@@ -278,8 +293,10 @@ class NetBeaconSim:
             vkind[i], vepoch[i], vevent[i] = 2, e, len(epoch_events[e])
 
         codes = self._evaluate_events(ev_phase, ev_feat, ev_code)
-        return self._resolve(pk, fh, slot, outcome, vkind, vepoch, vevent, memo_val, pkt_code,
-                             epoch_init, epoch_events, ev_phase, codes, long_)
+        out = self._resolve(pk, fh, slot, outcome, vkind, vepoch, vevent, memo_val, pkt_code,
+                            epoch_init, epoch_events, ev_phase, ev_pkt, codes, long_)
+        out["clock_offset_ns"] = offset
+        return out
 
     @staticmethod
     def _memo_insert(memo, memo_dir, key, dirs, res, size):
@@ -313,7 +330,7 @@ class NetBeaconSim:
 
     @staticmethod
     def _resolve(pk, fh, slot, outcome, vkind, vepoch, vevent, memo_val, pkt_code,
-                 epoch_init, epoch_events, ev_phase, codes, long_) -> dict[str, np.ndarray]:
+                 epoch_init, epoch_events, ev_phase, ev_pkt, codes, long_) -> dict[str, np.ndarray]:
         # Sticky stored value per (epoch, number of events so far): a Flow_Tree miss keeps it.
         state_val, state_src = [], []
         for e, init in enumerate(epoch_init):
@@ -322,6 +339,10 @@ class NetBeaconSim:
             for ev in epoch_events[e]:
                 if codes[ev]:
                     v, sname = int(codes[ev]), f"phase-{ev_phase[ev]}"
+                elif v == 0:
+                    # Flow_Tree missed on a stored 0: Pkt_Tree runs on the phase packet and the
+                    # recirculated copy stores its verdict (sw:598, 712, 722, 729)
+                    v, sname = int(pkt_code[ev_pkt[ev]]), "pkt"
                 vals.append(v)
                 srcs.append(sname)
             state_val.append(vals)
@@ -348,25 +369,50 @@ def _canon(d5):
     return (min(a, b), max(a, b), d5[4])
 
 
-def summarize(out: dict[str, np.ndarray]) -> pd.DataFrame:
-    """Per flow (symmetric 5-tuple): packets, share verdicted by the full model (phase or memo),
-    and ``downgraded``: predicted long at its first packet, yet at least one later packet was
-    refused a slot by an active incumbent or the flow had to retake its slot (state reset)."""
+def flow_ids(pk, idle_ns: int = 256_000_000) -> np.ndarray:
+    """Flow id per packet: the bidirectional 5-tuple (the two endpoint (address, port) pairs in
+    sorted order, plus the protocol), split whenever a packet follows its predecessor by more
+    than ``idle_ns``. The 256 ms default matches BoS's flow splitting."""
+    a = np.stack([pk["src_ip"].astype(np.int64), pk["src_port"].astype(np.int64)], axis=1)
+    b = np.stack([pk["dst_ip"].astype(np.int64), pk["dst_port"].astype(np.int64)], axis=1)
+    swap = (a[:, 0] > b[:, 0]) | ((a[:, 0] == b[:, 0]) & (a[:, 1] > b[:, 1]))
+    lo, hi = np.where(swap[:, None], b, a), np.where(swap[:, None], a, b)
+    key = np.stack([lo[:, 0], lo[:, 1], hi[:, 0], hi[:, 1], pk["proto"].astype(np.int64)], axis=1)
+    _, kid = np.unique(key, axis=0, return_inverse=True)
+    kid = kid.reshape(-1)
+    order = np.lexsort((pk["ts_ns"], kid))
+    ks, ts = kid[order], pk["ts_ns"].astype(np.int64)[order]
+    new = np.ones(len(ks), dtype=bool)
+    new[1:] = (ks[1:] != ks[:-1]) | (np.diff(ts) > idle_ns)
+    fid = np.empty(len(ks), dtype=np.int64)
+    fid[order] = np.cumsum(new) - 1
+    return fid
+
+
+def summarize(out: dict[str, np.ndarray], idle_ns: int = 256_000_000) -> pd.DataFrame:
+    """Per flow (:func:`flow_ids`): packets, share verdicted by the full model (phase or memo),
+    and ``downgraded`` (docs/preregistration.md): the flow had a path to the full model (some
+    packet predicted long; Flow_Size_Tree runs on every packet, sw:593, 608), yet a packet was
+    refused a slot by an active incumbent, or the flow lost its slot and had to retake it (state
+    reset). Refusals at never-claimed slots (FALLBACK_EMPTY) are counted but are not contention."""
+    fid = flow_ids(out, idle_ns)
     df = pd.DataFrame({k: out[k] for k in ("src_ip", "dst_ip", "src_port", "dst_port", "proto", "outcome",
                                            "source", "predicted_long")})
-    a = np.minimum(df.src_ip, df.dst_ip), np.maximum(df.src_ip, df.dst_ip)
-    p = np.minimum(df.src_port, df.dst_port), np.maximum(df.src_port, df.dst_port)
-    df["key"] = list(zip(a[0], a[1], p[0], p[1], df.proto))
+    df["flow_id"] = fid
     df = df[df.outcome != REJECTED]
     rows = []
-    for _, g in df.groupby("key", sort=False):
+    for f, g in df.groupby("flow_id", sort=False):
         oc = g.outcome.to_numpy()
         coll = int(np.sum(oc == FALLBACK_COLLISION))
-        resets = int(np.sum(oc[1:] == NEW_OWNER))
+        owned = np.isin(oc, (NEW_OWNER, OWNER))
+        first_owned = int(np.argmax(owned)) if owned.any() else len(oc)
+        resets = int(np.sum(oc[first_owned + 1:] == NEW_OWNER))
+        eligible = bool(g.predicted_long.any())
         first = g.iloc[0]
-        rows.append({"src_ip": first.src_ip, "dst_ip": first.dst_ip, "src_port": first.src_port,
-                         "dst_port": first.dst_port, "proto": first.proto, "n_pkts": len(g),
-                         "frac_full": float(np.mean(g.source.to_numpy() != "pkt")),
-                         "predicted_long": bool(first.predicted_long), "collisions": coll, "resets": resets,
-                         "downgraded": bool(first.predicted_long) and (coll > 0 or resets > 0)})
+        rows.append({"flow_id": int(f), "src_ip": first.src_ip, "dst_ip": first.dst_ip,
+                     "src_port": first.src_port, "dst_port": first.dst_port, "proto": first.proto,
+                     "n_pkts": len(g), "frac_full": float(np.mean(g.source.to_numpy() != "pkt")),
+                     "predicted_long": eligible, "collisions": coll, "resets": resets,
+                     "empty_refusals": int(np.sum(oc == FALLBACK_EMPTY)),
+                     "downgraded": eligible and (coll > 0 or resets > 0)})
     return pd.DataFrame(rows)
