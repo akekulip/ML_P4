@@ -77,3 +77,12 @@ H1 is also reported, as secondary results, on (ii) the attacker's own attack cla
   5. **Attribution.** "Top 20 flows" means the 20 largest flows by packet count; the five largest contributors to the loss are listed for the largest-L run.
   6. **Within-draw uncertainty.** The flow-cluster bootstrap is reported for the grid-0 draw of each arm, not for every draw.
   7. **Reference gate.** Reported in the results document: references differ by 134 to 2,145 of 4.85 M packets (the first draft of this line said 135) across clock starts, so all comparisons are paired.
+- 2026-09-23 (before any G2 data is downloaded or opened): **G2 benign traffic is fixed.**
+  - **Source:** MAWI Working Group Traffic Archive, samplepoint F (Tokyo transit link), the 14:00 to 14:15 daily capture. Headers only (96-byte capture length). Research use only.
+  - **Primary day:** Wednesday 2022-09-14 (`samplepoint-F/2022/202209141400.pcap.gz`; 125,402,386 packets, 8,662.83 MB raw, 2,847.89 MB gzipped).
+  - **Replication day, chosen by a mechanical rule** (exactly 26 weeks later, same weekday, still before the August 2023 change that added a 10 Gbps link to the capture point): Wednesday 2023-03-15 (`samplepoint-F/2023/202303151400.pcap.gz`; 108,803,846 packets, 7,902.78 MB raw, 2,917.26 MB gzipped).
+  - **Selection basis:** the primary day was chosen on stated criteria (mid-week, not a Japanese public holiday, before the 2023 link change, high packet count), not by a mechanical rule and not from looking at its contents. Neither trace had been opened when this entry was written.
+  - **Slice:** the first 120 seconds of each trace, taken as the first 120.0 s after the first packet's timestamp. This is fixed in advance to keep the emulator's run time practical and covers about 28 clock-wrap periods and 450 idle timeouts. The gzip file is downloaded only in part (the first 500,000,000 bytes) and cut at the last whole packet.
+  - **Filter:** the same parser filter as the PeerRush loader (IPv4 without options or fragmentation, TCP or UDP).
+  - **Detectors:** the new-flow-rate and volumetric thresholds are set at the benign p99 of the primary-day slice, measured in 1-second bins.
+  - **Reporting:** every G2 number is reported on both days. A result that holds on only one day is reported as such.
