@@ -1,6 +1,6 @@
 # MVM: How Much of a Decision Tree Does Network Traffic Actually Use?
 
-*Project framing, revised 2026-09-22 after the W2 results. Supersedes the pitch in `docs/brief.md`.
+*Project framing, revised 2026-09-22 after the W2 results and again after the code-review re-run (seed-mixed grouped split). Supersedes the pitch in `docs/brief.md`.
 All numbers below come from stand-in training pools, because `train_test_network.csv` has not been
 downloaded yet. They will be re-run on the official file.*
 
@@ -30,15 +30,14 @@ copies, so its test score keeps rising with depth (macro-F1 from 0.863 at depth 
 unlimited).
 
 When the split keeps every distinct feature vector in a single pool, only about 1% of test vectors
-appear in training, and the curve changes shape. Macro-F1 peaks near 100 to 450 leaves (about
-0.93) and then declines: the unlimited tree reaches 0.898 with 1,944 leaves. On flows the model
-has not seen, the extra leaves fit noise. The same random split overstates random-forest
-macro-F1 by 0.074 and decision-tree macro-F1 by 0.057.
+appear in training, and the curve changes shape. Macro-F1 rises to about 0.90 by depth 10 (395
+leaves) and then plateaus: depth 12 scores 0.921 and the unpruned tree 0.918 with 1,880 leaves,
+differences smaller than the variation across seeds. The same random split overstates the
+decision tree by 0.049 and logistic regression by 0.086.
 
 The project question therefore changes from "how much accuracy must we give up to fit the
-switch?" to the following: **when evaluation excludes duplicate leakage, is the model that
-classifies best also the model with the smallest working set, and how small is that working set
-under real traffic?**
+switch?" to the following: **when evaluation excludes duplicate leakage, how much tree does
+accurate classification need, and how small is the working set of that tree under real traffic?**
 
 ## Research questions
 
@@ -59,10 +58,11 @@ under real traffic?**
 
 - **H1.** Leaf visits are highly skewed under chronological replay. *Pilot evidence supports it
   for the full stream, where flood attacks dominate. The benign-only stream is the harder test.*
-- **H2 (revised).** Under leakage-free evaluation, accuracy peaks at a moderate tree size, so the
-  most accurate tree is also far smaller than the unpruned tree. *W2 supports this.* The
-  remaining question is whether its working set is small enough for a switch table of 8 to 64
-  entries.
+- **H2 (revised).** Under leakage-free evaluation, accuracy stops improving at a moderate tree
+  size while the working set keeps growing. *Supported after the re-run:* beyond about 650
+  leaves, macro-F1 plateaus (0.921 at depth 12, 0.918 unpruned) while benign W90 grows from 31
+  to 43 leaves. An earlier claim that deeper trees *lose* accuracy did not survive the
+  seed-mixed split.
 - **H3.** A static top-K placement loses hits at attack-phase boundaries that adaptive policies
   recover.
 - **H4.** Predictions are identical to the full tree, because a miss falls back to it. *This holds
@@ -91,7 +91,8 @@ under real traffic?**
 ## Contributions (scoped for a class project)
 
 1. A leakage-controlled evaluation of decision trees on TON_IoT, showing that the apparent gain
-   from deeper trees comes from duplicate flows.
+   from deeper trees comes from duplicate flows, and that accuracy plateaus while the working
+   set keeps growing.
 2. A measurement of leaf-level locality in time-ordered network traffic, reported separately for
    the flood-dominated stream, benign traffic and each attack phase.
 3. A comparison of leaf-cache policies against static placement and the offline optimum, with a

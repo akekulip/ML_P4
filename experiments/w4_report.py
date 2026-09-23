@@ -90,9 +90,27 @@ h["rate"] = h.hits / h.n
 show = ["belady", "dlfu_0.99", "lru", "static_warm"]
 fig, axes = plt.subplots(2, 1, figsize=(7.16, 3.8), sharex=True, gridspec_kw={"height_ratios": [2.2, 1]})
 seed0 = h[h.seed == 0]
+hours = sorted(seed0.hour.unique())
+pos = {h: i for i, h in enumerate(hours)}  # compressed time axis: one position per observed hour
+dt = pd.to_datetime(pd.Series(hours), format="%Y-%m-%d %H")
+gaps = np.flatnonzero(dt.diff() > pd.Timedelta(hours=6))
+
+
+def on_axis(hour, y):
+    """Positions on the compressed axis, with NaN at data gaps so lines never bridge them."""
+    x = np.array([pos[h] for h in hour], float)
+    y = np.asarray(y, float)
+    cut = np.isin(x, gaps)
+    xs, ys = list(x), list(y)
+    for i in np.flatnonzero(cut)[::-1]:
+        xs.insert(i, x[i] - 0.5)
+        ys.insert(i, np.nan)
+    return xs, ys
+
+
 for pol in show:
     g = seed0[seed0.policy == pol].sort_values("hour")
-    axes[0].plot(pd.to_datetime(g.hour, format="%Y-%m-%d %H"), g.rate, lw=1.0, color=COL[pol], label=LABEL[pol])
+    axes[0].plot(*on_axis(g.hour, g.rate), lw=1.0, color=COL[pol], label=LABEL[pol])
 axes[0].set(ylabel="hourly hit rate, K=8", ylim=(-0.02, 1.02))
 axes[0].legend(fontsize=6.5, frameon=False, loc="lower left", ncol=2)
 axes[0].set_title("Hit rate across attack phases (grouped split, depth 10, seed 0; Canberra time)")
@@ -100,9 +118,17 @@ drift_path = ROOT / "results/w3/drift_hourly.parquet"
 if drift_path.exists():
     d = pd.read_parquet(drift_path)
     d = d[(d["mode"] == "grouped") & (d.depth == "10")].sort_values("hour")
-    axes[1].plot(pd.to_datetime(d.hour, format="%Y-%m-%d %H"), d.attack_frac, color="#666", lw=1.0)
-axes[1].set(ylabel="attack share", ylim=(-0.05, 1.05))
-fig.autofmt_xdate()
+    d = d[d.hour.isin(pos)]
+    axes[1].plot(*on_axis(d.hour, d.attack_frac), color="#666", lw=1.0)
+axes[1].set(ylabel="attack share", ylim=(-0.05, 1.05), xlabel="local day (hours without replay flows are omitted)")
+for ax in axes:
+    for gi in gaps:
+        ax.axvline(gi - 0.5, color="#999", lw=0.8, ls="--")
+day_start = []
+for i, h in enumerate(hours):  # label a day only if it starts at least 6 positions after the last label
+    if (i == 0 or h[:10] != hours[i - 1][:10]) and (not day_start or i - day_start[-1] >= 6):
+        day_start.append(i)
+axes[1].set_xticks(day_start, [hours[i][5:10] for i in day_start], fontsize=7)
 fig.tight_layout()
 for ext in ("pdf", "png"):
     fig.savefig(FIG / f"w4_hourly_hit_rate.{ext}", dpi=150)

@@ -23,9 +23,9 @@ the backend). The P4/BMv2 part is the deployment proof.
 - [x] **W2 (done 2026-09-22, stand-in training pools):** RQ1 — LR/DT/RF, depth and ccp sweep, metrics with bootstrap CIs, feature ablations
 - [x] **W3 (done 2026-09-22 21:51, stand-in pools):** RQ2/RQ3 — locality metrics, Pareto frontier of F1 vs W90, drift (JS), shuffled vs chronological, per-phase windows
 - [x] **W4 (done 2026-09-22 22:00, stand-in pools):** RQ4 — cache simulator (static, LRU, LFU, decayed-LFU, oracle), K sweep, recovery time, regret, churn
-- [ ] **W5:** BMv2 — mvm.p4, controller, write-rate measurement, fidelity
-- [ ] **W6:** BMv2 end-to-end replay and latency (labeled "BMv2 ≠ ASIC"); NF-ToN-IoT-v3 cross-check as stretch
-- [ ] **W7:** report and slides
+- [x] **W5 (done 2026-09-22):** BMv2 — mvm.p4, controller, write-rate measurement, fidelity
+- [x] **W6 (done 2026-09-22; NF-ToN-IoT-v3 stretch NOT done):** BMv2 end-to-end replay and latency (labeled "BMv2 ≠ ASIC"); NF-ToN-IoT-v3 cross-check as stretch
+- [x] **W7 (done 2026-09-22):** report and slides
 
 ## Status (2026-09-22)
 - Repo created (local git on `main`, no remote).
@@ -245,13 +245,96 @@ the backend). The P4/BMv2 part is the deployment proof.
   - W5 (BMv2 prototype) is next.
   - The report and slides (W7) should use the revised framing in `docs/framing.md`.
 
+## Code review and re-run (2026-09-22 late evening) — supersedes the W2–W4 numbers above
+- The code-reviewer agent found no blockers. It found four majors, all fixed:
+  1. The group partition was the same for every seed. It is now seed-mixed.
+  2. The depth-10 headline model had been picked on test. Headlines now use the validation-selected depth.
+  3. The recovery threshold was too loose. Recovery now counts only true phase boundaries, uses a relative miss-rate test, and treats excess misses as the primary measure.
+  4. Re-running a report deleted the recovery section. Recovery now lives in its own doc.
+- **Minor fixes:**
+  - exact decayed-LFU eviction key, with a test in the underflow regime;
+  - the static policy can no longer hit in its own warm-up hour;
+  - full replay-alignment assert.
+- Re-ran W2 → W3 → W4 through `experiments/rerun_after_review.sh`: gates first, about 70 minutes, all passed.
+- **Numbers that changed** (grouped split, data-plane DT):
+  - **Accuracy plateaus; it does not decline.** Depth 10: .904. Depth 12: .921 ± .027. Unpruned: .918 ± .040. The earlier
+    "deeper trees lose accuracy" (.929 → .898) was partly an artifact of the fixed partition.
+  - **Validation selection is unstable.** The five seeds picked unpruned ×2, depth 10, depth 12 and depth 16.
+    The headline tree is therefore the unpruned tree (1,880 leaves).
+  - **Leakage inflation:**
+
+    | Model | random | grouped | inflation |
+    |---|---|---|---|
+    | DT | .967 | .918 | +.049 |
+    | RF | .967 | .919 | +.048 |
+    | HGB | .962 | .909 | +.053 |
+    | LR | .866 | .780 | +.086 |
+
+  - **Replay macro-F1 is far below IID** (96% attack stream):
+
+    | Split | DT (val depth) | HGB | always-attack |
+    |---|---|---|---|
+    | grouped | .555 | – | .495 |
+    | forward | .624 | .827 | .491 |
+
+    Forward-split recall on unseen injection is .51.
+  - **Locality at the unpruned depth:** full W90 26 and W99 266; benign W90 43; attack types W90 1.6–17.8; mitm 96.
+  - **Caching at the unpruned depth, K=8, full stream:**
+
+    | Policy | Hit rate |
+    |---|---|
+    | Belady | .964 |
+    | decayed LFU | .947 |
+    | LRU | .936 |
+    | hourly oracle | .929 |
+    | LFU | .778 |
+    | C(8) | .709 |
+    | static | .013 |
+
+    Regret of decayed LFU vs Belady is .017.
+  - **Recovery** (depth 10, true phase boundaries): mean excess misses in the first 10k flows are 119 for decayed LFU,
+    133 for LRU and 836 for LFU. Phase 04-27 takes about 16k flows even for Belady.
+
+## W5/W6 results (BMv2) — `docs/results_w5.md`
+- The validation-selected tree for seed 0 is unpruned (1,720 leaves). K=8 entries, decayed LFU with γ=.99.
+  Two 30k-query slices across phase changes.
+- **All checks pass:**
+  - served prediction equals `tree.predict` on 60,000/60,000 queries;
+  - the switch hits exactly when the policy says the leaf is resident;
+  - the hit sequence equals the offline simulator;
+  - occupancy never exceeds 8.
+- **Hit rates:** .922 (full slice) and .856 (benign slice).
+- **Timing on BMv2:**
+
+  | Measure | full slice | benign slice |
+  |---|---|---|
+  | hit round trip p50 / p99 | .21 / .28 ms | .24 / .31 ms |
+  | miss service p50 | .85 ms | 1.02 ms |
+
+- **P4Runtime writes on BMv2:** 3,866/s single, 33,622/s batched 100.
+- **Design:** exact float32 order-preserving 32-bit keys (`src/mvm/p4encode.py`). No sudo or interfaces are needed, because packet-out and packet-in go over P4Runtime.
+
+## W7 deliverables — `docs/report/`
+- `report.md` → `report.pdf` (11 pages) and `slides.md` → `slides.pdf` (13 Beamer slides). Build with
+  `pandoc report.md -o report.pdf --pdf-engine=tectonic`. Every number comes from `experiments/w7_numbers.py` → `docs/report/numbers.json`.
+- **Writing gates:**
+  - `natural-voice`: PASS, with no regression across the edit pass. The first edit pass was rejected and redone.
+  - `voice_check`: 9 deviations, all justified. Every one points to a plainer, more readable text than the corpus
+    (Flesch 52 vs 16–29, fewer nominalizations), appropriate for a class report.
+  - `density_check`: fails on too MANY numbers. It was kept, because removing numbers regressed `natural-voice` grounding, and the voice gate outranks it.
+  - `academic-humanizer` was not run as a separate skill. Claim/evidence hedging was done by hand.
+  - `remove-ai-marks` Layer A: 0 marks; PDF metadata stripped.
+- **Before submission, Philip must:**
+  - verify references [6], [12], [13], [14] (authors and titles marked "[to be verified]"; check them in Zotero);
+  - add any AI-use disclosure the course requires;
+  - revise the prose in his own words where he wants it to be his.
+
 ## Next action
 1. Philip: re-download `Train_Test_datasets/Train_Test_Network_dataset/train_test_network.csv` on its own, as a single file.
 2. Once it arrives: check the no-`ts` claim and 461,043 rows, match its rows against the full set
    (overlap removal), then re-run the pilot on the real training file.
-3. W5: BMv2 prototype. Build `p4/mvm.p4` (range-match leaf table, packet-in on miss) and a
-   P4Runtime controller running decayed LFU (γ=.99), K=8, depth-10 tree. Check fidelity against
-   `tree.predict`, and measure the write rate.
+3. All milestones W1–W7 are done. Remaining: get the official `train_test_network.csv` and re-run
+   everything with it (the pools are stand-ins); optionally run the NF-ToN-IoT-v3 cross-check; verify the references.
 4. (done) W3 (RQ2/RQ3): locality metrics on the saved leaf streams
    (`results/w2/{grouped,forward}/leaves/seed*_dp_DT_depth*.npy`, `replay_mask_seed*.npy`).
    - Three orderings: file order, within-second shuffle, and flow-end time.
