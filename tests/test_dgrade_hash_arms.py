@@ -115,6 +115,11 @@ def test_known_reducible_and_irreducible_degree_32():
     assert not is_irreducible((1 << 32) | 1, 32)                                  # x^32 + 1 = (x+1)^32
 
 
+def test_standard_crc32_polynomial_is_irreducible():
+    # cross-checked once against sympy (not a repo dependency): the IEEE polynomial is irreducible
+    assert is_irreducible((1 << 32) | 0x04C11DB7, 32)
+
+
 def test_polyirr_arm_is_irreducible_deterministic_and_symmetric():
     t = _tuples(2000)
     a = flow_hash(*t, kind="polyirr", key_seed=4)

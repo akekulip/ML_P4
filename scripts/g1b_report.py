@@ -153,6 +153,7 @@ def main() -> None:
         k, _, m = n_.partition(":")
         labels[n_] = f"{k} ({'clock varied' if m == 'varied' else 'clock fixed at grid 0'})"
     arms = {n_: arm(n_) for n_ in names if len(arm(n_))}
+    missing = [labels[n_] for n_ in names if n_ not in arms]
     crc = arms["crc"]
     crc0 = crc[crc.grid == 0].iloc[0]
 
@@ -173,6 +174,8 @@ def main() -> None:
           "## Arms", "", ("| arm | draws | mean L | median L | p_big (L > 0.004) [95% CI] | downgraded flows (share) | "
                           "downgraded packets (share) | net packets lost, mean (of which the 20 largest flows) | "
                           "gap on downgraded flows: median [range] |"), "|---|---|---|---|---|---|---|---|---|"]
+    for n_ in missing:
+        L.append(f"| {n_} | 0 (expected {DRAWS}) | | | | | | | |")
     for n_, d in arms.items():
         k = int((d.L > BIG).sum())
         lo, hi = cp_interval(k, len(d))
@@ -180,6 +183,22 @@ def main() -> None:
                  f"{d.L.median():.5f} | {k}/{len(d)} [{lo:.2f}, {hi:.2f}] | {d.down_flow_share.mean():.4%} | "
                  f"{d.down_pkt_share.mean():.4%} | {d.net_pkts_lost.mean():,.0f} ({d.top20_pkts_lost.mean():,.0f}) | "
                  f"{d.gap_down.median():+.4f} [{d.gap_down.min():+.4f}, {d.gap_down.max():+.4f}] |")
+
+    L += ["", "## Where the shipped hash sits among random hashes", "",
+          ("Downgraded-packet share of the keyed draws against the unkeyed hash. The number of downgraded flows is "
+           "about the same in every arm; what differs is how many packets they carry. This says nothing about which "
+           "flows are hit (the 20 largest flows are not the difference) and the accuracy loss L is not lower for the "
+           "shipped hash. Two comparisons: fixed clock (every draw against the unkeyed run at grid 0, "
+           f"{crc0.down_pkt_share:.4%}) and clock varied (every draw against the unkeyed run at its own clock)."), "",
+          "| arm | draws | draws with a share at or below the unkeyed value | median keyed share | range |",
+          "|---|---|---|---|---|"]
+    cgs = crc.set_index("grid").down_pkt_share
+    for n_ in [f"{k}:{m}" for k in ("poly", "polyirr", "tab") for m in ("fixed", "varied")]:
+        if n_ in arms:
+            d = arms[n_]
+            ref = crc0.down_pkt_share if n_.endswith("fixed") else cgs.loc[d.grid].to_numpy()
+            L.append(f"| {labels[n_]} | {len(d)} | {int((d.down_pkt_share.to_numpy() <= ref).sum())} | "
+                     f"{d.down_pkt_share.median():.4%} | {d.down_pkt_share.min():.4%} to {d.down_pkt_share.max():.4%} |")
 
     L += ["", "## Negative control: does an XOR-salt change which flows are downgraded?", "",
           ("CRC is affine over GF(2), so a salt shifts every slot by one constant and collisions are unchanged. "
@@ -198,7 +217,10 @@ def main() -> None:
            f"(b) the CI of the downgraded-packet-share difference lies within ±{EQUIV_SHARE * 100:.1f} percentage "
            "points; (c) the p_big intervals overlap. Each rule is pass, fail (interval entirely outside) or "
            "inconclusive. Any fail gives \"changed distribution\"; all pass gives \"neutral on benign traffic\"; "
-           "otherwise \"not shown neutral\". Percentile bootstrap over draws; clock-varied arms are paired by clock."), "",
+           "otherwise \"not shown neutral\". Percentile bootstrap over draws; clock-varied arms are paired by clock. "
+           "Rules (a) and (b) compare with the unkeyed run at the same clock (grid 0 for the fixed-clock arms); rule (c) "
+           "compares every arm's p_big interval with the clock-varied unkeyed interval. The tabulation hash has a "
+           "clock-varied column only."), "",
           "| arm | mean ΔL [90% CI] | (a) | Δ packet share, pp [90% CI] | (b) | (c) p_big overlap | verdict |",
           "|---|---|---|---|---|---|---|"]
     base_ci = cp_interval(int((crc.L > BIG).sum()), len(crc))

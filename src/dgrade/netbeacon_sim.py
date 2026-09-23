@@ -539,7 +539,8 @@ def summarize(out: dict[str, np.ndarray], idle_ns: int = 256_000_000) -> pd.Data
     and ``downgraded`` (docs/preregistration.md): the flow had a path to the full model (some
     packet predicted long; Flow_Size_Tree runs on every packet, sw:593, 608), yet a packet was
     refused a slot by an active incumbent, or the flow lost its slot and had to retake it (state
-    reset). Refusals at never-claimed slots (FALLBACK_EMPTY) are counted but are not contention."""
+    reset). Refusals at never-claimed slots (FALLBACK_EMPTY) are counted but are not contention.
+    ``resets`` counts packets that retook a slot or were answered as predicted-short after holding one."""
     fid = flow_ids(out, idle_ns)
     df = pd.DataFrame({k: out[k] for k in ("src_ip", "dst_ip", "src_port", "dst_port", "proto", "outcome",
                                            "source", "predicted_long")})

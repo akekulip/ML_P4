@@ -21,12 +21,15 @@ Isolated references were run at 30 clock starts. Against the reference at grid 0
 
 ## Where the shipped hash sits among random hashes
 
-Downgraded-packet share of the unkeyed hash at grid 0 against every keyed draw at the same clock (unkeyed: 1.1334%). A share far below the keyed draws means the shipped hash happens to spare the largest flows on this trace.
+Downgraded-packet share of the keyed draws against the unkeyed hash. The number of downgraded flows is about the same in every arm; what differs is how many packets they carry. This says nothing about which flows are hit (the 20 largest flows are not the difference) and the accuracy loss L is not lower for the shipped hash. Two comparisons: fixed clock (every draw against the unkeyed run at grid 0, 1.1334%) and clock varied (every draw against the unkeyed run at its own clock).
 
-| arm (clock fixed at grid 0) | draws | keyed draws with a share at or below the unkeyed value | median keyed share | range |
+| arm | draws | draws with a share at or below the unkeyed value | median keyed share | range |
 |---|---|---|---|---|
 | poly (clock fixed at grid 0) | 30 | 1 | 1.9767% | 1.0439% to 22.8288% |
+| poly (clock varied) | 30 | 2 | 2.0014% | 1.0222% to 23.1398% |
 | polyirr (clock fixed at grid 0) | 30 | 1 | 2.1233% | 0.9037% to 4.8670% |
+| polyirr (clock varied) | 30 | 1 | 2.2498% | 1.3581% to 4.9148% |
+| tab (clock varied) | 30 | 4 | 2.3672% | 0.9530% to 22.7700% |
 
 ## Negative control: does an XOR-salt change which flows are downgraded?
 
@@ -37,7 +40,7 @@ CRC is affine over GF(2), so a salt shifts every slot by one constant and collis
 
 ## Is a keyed hash neutral on benign traffic?
 
-Pre-registered rule, all three: (a) the 90% CI of mean L(keyed) − mean L(unkeyed) lies within ±0.002; (b) the CI of the downgraded-packet-share difference lies within ±0.1 percentage points; (c) the p_big intervals overlap. Each rule is pass, fail (interval entirely outside) or inconclusive. Any fail gives "changed distribution"; all pass gives "neutral on benign traffic"; otherwise "not shown neutral". Percentile bootstrap over draws; clock-varied arms are paired by clock.
+Pre-registered rule, all three: (a) the 90% CI of mean L(keyed) − mean L(unkeyed) lies within ±0.002; (b) the CI of the downgraded-packet-share difference lies within ±0.1 percentage points; (c) the p_big intervals overlap. Each rule is pass, fail (interval entirely outside) or inconclusive. Any fail gives "changed distribution"; all pass gives "neutral on benign traffic"; otherwise "not shown neutral". Percentile bootstrap over draws; clock-varied arms are paired by clock. Rules (a) and (b) compare with the unkeyed run at the same clock (grid 0 for the fixed-clock arms); rule (c) compares every arm's p_big interval with the clock-varied unkeyed interval. The tabulation hash has a clock-varied column only.
 
 | arm | mean ΔL [90% CI] | (a) | Δ packet share, pp [90% CI] | (b) | (c) p_big overlap | verdict |
 |---|---|---|---|---|---|---|
