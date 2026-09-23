@@ -111,3 +111,14 @@ def test_fix_ipd_wrap_removes_the_wrapped_gap():
     NetBeaconSim(models=buggy, clock_offset_ns=0).run(pk)
     NetBeaconSim(models=fixed, clock_offset_ns=0, fix_ipd_wrap=True).run(pk)
     assert buggy.seen[0] > _M32 // 2 and fixed.seen[0] < 10
+
+
+def test_defence_names_map_to_emulator_switches():
+    from dgrade.defences import defence_kwargs
+    assert defence_kwargs(None) == {} and defence_kwargs("") == {}
+    d1 = defence_kwargs("d1")
+    assert d1["wrap_window"] is False and d1["takeover_refresh"] is True and d1["fix_ipd_wrap"] is True
+    assert defence_kwargs("d3c16")["rent"] == "credit" and defence_kwargs("d3c16")["rent_rmin"] == 16.0
+    assert defence_kwargs("d3r8")["rent"] == "rate" and defence_kwargs("d3a")["rent"] == "age"
+    with pytest.raises(ValueError):
+        defence_kwargs("d9")
