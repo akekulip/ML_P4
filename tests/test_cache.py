@@ -100,3 +100,22 @@ def test_decayed_lfu_keeps_true_order_after_long_idle_gap(fast):
     seq = np.array([0] * 50 + [1] + [2] * 100_000 + [3, 0, 1])
     r = simulate_fast("dlfu", seq, 3, gamma=0.99) if fast else simulate(DecayedLFU(gamma=0.99), seq, 3)
     assert r.hits[-2:].tolist() == [True, False]  # A still resident, B was evicted
+
+
+def test_hardware_policy_sim_reduces_to_ideal_decayed_lfu_without_lag():
+    from mvm.cache import simulate_fast, simulate_hw_policy
+
+    seq = np.random.default_rng(11).zipf(1.3, 5000) % 150
+    ideal = simulate_fast("dlfu", seq, 8, gamma=0.99).hits
+    hw = simulate_hw_policy(seq, 8, gamma=0.99, lag=0, poll=1, clock="query")
+    assert hw.tolist() == ideal.tolist()
+
+
+def test_hardware_policy_sim_install_lag_turns_early_repeats_into_misses():
+    from mvm.cache import simulate_hw_policy
+
+    # leaf 5 repeats right after its first miss: with a lag of 3 queries the next two repeats
+    # still miss (the install has not landed), the fourth access hits
+    seq = np.array([5, 5, 5, 5, 5])
+    assert simulate_hw_policy(seq, 8, gamma=0.99, lag=3, poll=1).tolist() == [False, False, False, True, True]
+    assert simulate_hw_policy(seq, 8, gamma=0.99, lag=0, poll=1).tolist() == [False, True, True, True, True]

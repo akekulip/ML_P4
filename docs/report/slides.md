@@ -79,18 +79,35 @@ fontsize: 10pt
 - Exact encoding: each float32 feature becomes an order-preserving 32-bit key, so range matches reproduce the tree exactly.
 - 60,000 replayed queries: served prediction equals the full tree 100% of the time, and the hit sequence equals the simulator.
 - Hit rate 92.2% (all traffic) and 85.6% (benign). Median hit 0.21 ms, median miss 0.85 ms on BMv2.
-- BMv2 took 3,866 single-entry writes per second, 33,622 per second batched. These are software-switch numbers, not ASIC numbers.
+- BMv2 took 3,866 single-entry writes per second, 33,622 per second batched (software switch).
+
+# Tofino-1 hardware: MVM with real servers
+
+- UfiSpace S9180-32X (Tofino-1) with Vision (queries) and Hulk (CPU backend) on 25G links.
+- Tofino range keys are limited to about 20 bits, so each feature is turned into a thermometer code first; the leaf table is ternary over the codes, still one entry per leaf. The depth-10 tree (394 leaves, 361-bit key) is the deepest that fits.
+- 36 runs, 1.08M queries: every query answered, and every answer equals the full tree.
+- Hit rate at 1k queries/s: 95.6% (all traffic) and 84.6% (benign), against 96.3% and 88.5% for the ideal policy; the controller needs 6 ms to install a leaf.
+
+# Tofino-1 hardware: switch against CPU
+
+![](../../figures/w8_load_sweep.pdf){width=80%}
+
+- Switch pipeline: 362 ns per hit. Round trip at Vision: 102.5 µs for a switch hit, 300.7 µs when every query goes to the CPU server.
+- The CPU computes a query in 30 ns; the saving comes from the network hop and host stacks, not from compute.
+- At higher load the hit rate falls to 68 to 81%: control-plane lag spans more queries.
 
 # Limitations and next steps
 
 - Training pools are drawn from the full set with the official class mix; the official train/test file was not available.
 - One testbed, 96% attack traffic: benign locality in a real network may differ.
 - Validation selection of tree depth is unstable across seeds (unpruned twice; depths 10, 12, 16 once each).
-- Next: official training file, a second dataset (NF-ToN-IoT v3), and a Tofino port with quantized keys.
+- Control-plane lag costs up to 28 points of hit rate at high load on Tofino-1.
+- Next: official training file, a second dataset (NF-ToN-IoT v3), and replacement decisions closer to the data plane.
 
 # Summary
 
 - Duplicate leakage, not model capacity, made deeper trees look better.
 - Beyond about 650 leaves, accuracy stops improving while the working set keeps growing.
 - Attack traffic is cheap to cache; benign traffic sets the table size.
-- An 8-entry table with decayed LFU serves 94.7% of flows, 1.7 points below the offline optimum, and the BMv2 prototype matches the full tree exactly.
+- An 8-entry table with decayed LFU serves 94.7% of flows, 1.7 points below the offline optimum.
+- On Tofino-1 the switch answers exactly like the full tree, in 362 ns per hit, at one third of the CPU path's round trip.

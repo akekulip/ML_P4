@@ -26,6 +26,7 @@ the backend). The P4/BMv2 part is the deployment proof.
 - [x] **W5 (done 2026-09-22):** BMv2 — mvm.p4, controller, write-rate measurement, fidelity
 - [x] **W6 (done 2026-09-22; NF-ToN-IoT-v3 stretch NOT done):** BMv2 end-to-end replay and latency (labeled "BMv2 ≠ ASIC"); NF-ToN-IoT-v3 cross-check as stretch
 - [x] **W7 (done 2026-09-22):** report and slides
+- [x] **W8 (done 2026-09-23):** MVM on the real Tofino-1 with Vision and Hulk, compared with CPU-only
 
 ## Status (2026-09-22)
 - Repo created (local git on `main`, no remote).
@@ -329,11 +330,57 @@ the backend). The P4/BMv2 part is the deployment proof.
   - add any AI-use disclosure the course requires;
   - revise the prose in his own words where he wants it to be his.
 
+## W8 results (Tofino-1 hardware, 2026-09-23) — `docs/results_w8.md`, `hw/README.md`
+- **Encoding.** The 20-bit range limit is met with per-feature fine and coarse thermometer tables plus
+  a ternary `leaf_tbl`, one entry per leaf.
+  - Depth 10 (394 leaves, 361-bit key) is the deepest tree that fits; depth 12 needs 602 bits.
+  - The program uses all 12 ingress stages.
+  - Emulation is exact against `tree.apply` (unit-tested).
+- **Takeover.** The DNP3 anchor-fix program was snapshotted to `~/ml_p4/snapshot_dnp3_20260923/`,
+  with `~/ml_p4/RESTORE_dnp3_20260923.sh` ready, and then stopped.
+  - **MVM is left running**, as Philip decided.
+  - Hulk's switch link (dp10) was brought up for the first time in this setup.
+- **Bugs found and fixed on hardware:**
+  1. A direct counter must run in every action of its table.
+  2. Range entries take about 1.5 TCAM rows each, so range tables are sized at 4×.
+  3. The conf path rewrite missed `build_new`.
+  4. Reflected hits were dropped by the NIC because the source MAC was its own; the hit action now swaps MACs.
+  5. The backend's `recvmmsg` blocked until 64 packets arrived; it now uses `MSG_WAITFORONE`.
+  6. The feature offset was wrong (16, not 20). Found by the fidelity check on the smoke run.
+  7. The controller log was corrupted by unsynchronized thread writes; one early log is affected and parsed leniently.
+- **Campaign:** 36 runs; **1,080,000 queries answered, and served class and leaf equal the tree in 100% of
+  them.**
+- **Hit rate at 1k qps:**
+
+  | Slice | hardware | ideal / BMv2 | hardware-policy sim, lag 10–50 queries |
+  |---|---|---|---|
+  | full | .956 | .963 | brackets it |
+  | benign | .846 | .885 | brackets it |
+
+  The controller takes 6.1 ms at the median from digest to completed write (24.4 ms at the 99th percentile).
+- **Latency:**
+
+  | Path | Value |
+  |---|---|
+  | on-chip pipeline, per hit | 362 ns (p99 391 ns) |
+  | round trip at Vision, switch hit | 102.5 µs |
+  | round trip at Vision, miss via Hulk | 232 µs |
+  | round trip at Vision, CPU-only (K=0) | 300.7 µs |
+  | CPU compute, Hulk Xeon Gold 6140 | 30 ns/query, 0 mismatches |
+
+  The host stacks dominate the round trips: the hit round trip falls to 32.5 µs at 100k qps.
+- **Load sweep to 100k qps:** both modes answered everything, and MVM's median round trip is 2–3× lower at
+  every load.
+  - The switch hit rate falls to .676–.809 at 5k–100k qps, non-monotone. The hypothesis is control-plane lag in
+    queries, plus short runs at high rates.
+- **Security note for Philip:** `~/.claude/projects/-home-philip/memory/feedback_ssh_sudo.md`
+  contains the lab password in plain text. Remove it and rely on `~/.lab_env`.
+
 ## Next action
 1. Philip: re-download `Train_Test_datasets/Train_Test_Network_dataset/train_test_network.csv` on its own, as a single file.
 2. Once it arrives: check the no-`ts` claim and 461,043 rows, match its rows against the full set
    (overlap removal), then re-run the pilot on the real training file.
-3. All milestones W1–W7 are done. Remaining: get the official `train_test_network.csv` and re-run
+3. All milestones W1–W8 are done. MVM stays on the switch; restore DNP3 with ~/ml_p4/RESTORE_dnp3_20260923.sh when needed. Remaining: get the official `train_test_network.csv` and re-run
    everything with it (the pools are stand-ins); optionally run the NF-ToN-IoT-v3 cross-check; verify the references.
 4. (done) W3 (RQ2/RQ3): locality metrics on the saved leaf streams
    (`results/w2/{grouped,forward}/leaves/seed*_dp_DT_depth*.npy`, `replay_mask_seed*.npy`).

@@ -9,7 +9,7 @@ numbersections: true
 
 # Abstract {-}
 
-Programmable switches can classify traffic with a decision tree at line rate, but their match-action tables hold only a small number of entries. A switch can therefore keep only a subset of a tree's leaves and forward the remaining flows to a server that runs the full tree. Whether this is useful depends on two properties of the model and the traffic: how many leaves the traffic actually uses over time, and how large a tree must be to classify well. We measure both on 22.3 million TON_IoT network flows replayed in time order. We first show that the usual random train/test split inflates the benefit of deeper trees, because 59% of test flows are exact copies of training flows. With a split that keeps every distinct feature vector in one partition, macro-F1 stops improving beyond about 650 leaves while the number of leaves the traffic uses keeps growing. On the replay stream, 2 to 18 leaves serve 90% of the flows of each attack type, while benign traffic needs 43. An online leaf cache with 8 entries, managed by decayed LFU, serves 94.7% of all flows, 1.7 points below the offline optimum (Belady) and well above the best fixed table chosen in hindsight (70.9%). We implement the scheme on BMv2 with one range-match entry per leaf and an exact integer encoding of the tree's thresholds; the prototype reproduced the full tree's predictions on all 60,000 replayed queries, with a median hit time of 0.21 ms on BMv2.
+Programmable switches can classify traffic with a decision tree at line rate, but their match-action tables hold only a small number of entries. A switch can therefore keep only a subset of a tree's leaves and forward the remaining flows to a server that runs the full tree. Whether this is useful depends on two properties of the model and the traffic: how many leaves the traffic actually uses over time, and how large a tree must be to classify well. We measure both on 22.3 million TON_IoT network flows replayed in time order. We first show that the usual random train/test split inflates the benefit of deeper trees, because 59% of test flows are exact copies of training flows. With a split that keeps every distinct feature vector in one partition, macro-F1 stops improving beyond about 650 leaves while the number of leaves the traffic uses keeps growing. On the replay stream, 2 to 18 leaves serve 90% of the flows of each attack type, while benign traffic needs 43. An online leaf cache with 8 entries, managed by decayed LFU, serves 94.7% of all flows, 1.7 points below the offline optimum (Belady) and well above the best fixed table chosen in hindsight (70.9%). We implement the scheme on BMv2 with one range-match entry per leaf and an exact integer encoding of the tree's thresholds; the prototype reproduced the full tree's predictions on all 60,000 replayed queries. On a Tofino-1 switch with real servers, 1.08 million queries were answered with the full tree's prediction every time, a switch hit took 362 ns in the pipeline, and the median round trip was about one third of sending every query to a CPU server.
 
 # Introduction
 
@@ -23,7 +23,7 @@ We make three contributions.
 
 - **Removes a leakage artifact from the model-size question.** TON_IoT contains millions of exact-duplicate flows. Under a random split, deeper trees appear monotonically better because they memorize duplicates. With a split that assigns each distinct feature vector to a single partition, macro-F1 stops improving beyond depth 10 to 12 while the working set keeps growing (Sections 5.1 and 5.3).
 - **Measures leaf locality under time-ordered traffic.** We report the working-set size, top-K coverage, reuse distance and drift of leaf usage on 22.3 million flows, separately for the full stream, benign traffic, each attack phase and each attack type (Section 5.2). Attack flows use very few leaves; benign traffic determines the table size.
-- **Evaluates demand paging, in simulation and on BMv2.** We compare online replacement policies with static placement and the offline optimum, measure adaptation after attack-phase changes in flows, and run the scheme on BMv2 with an exact encoding of the tree's thresholds (Sections 5.4 and 5.5).
+- **Evaluates demand paging, in simulation and on BMv2.** We compare online replacement policies with static placement and the offline optimum, measure adaptation after attack-phase changes in flows, and run the scheme on BMv2 and on a Tofino-1 switch with an exact encoding of the tree's thresholds (Sections 5.4 to 5.6).
 
 # Background and Objectives
 
@@ -42,7 +42,7 @@ We state four research objectives and reuse their labels throughout.
 
 ## Scope
 
-We assume that flow features are computed before classification and carried to the switch in a custom header, as in the standard workflow of in-network classification prototypes [4]. We argue that this is a reasonable assumption for a study of model placement, as line-rate feature extraction is a separate problem with its own resource costs. We use BMv2, a software switch, to demonstrate correctness and update behavior. BMv2 latencies are not ASIC latencies, and we make no line-rate claims; a Tofino port is left to future work.
+We assume that flow features are computed before classification and carried to the switch in a custom header, as in the standard workflow of in-network classification prototypes [4]. We argue that this is a reasonable assumption for a study of model placement, as line-rate feature extraction is a separate problem with its own resource costs. We run the scheme on BMv2, a software switch, and on a Tofino-1 switch with two servers. Round trips measured at a server include its network stack, so we report the on-chip latency separately, and we make no line-rate claims.
 
 # Design
 
@@ -61,6 +61,10 @@ In Figure 1, we show the prototype.
 ![MVM-Lite prototype. The controller sends feature keys as packet-outs; the switch answers from its 8-entry leaf table; on a miss the controller runs the full tree and rewrites the table.](fig_prototype.pdf){width=95%}
 
  The P4 program holds a range-match table with one entry per resident leaf and ten 32-bit range keys. The controller sends each flow's feature keys as a P4Runtime packet-out. The switch looks the keys up and returns a packet-in with the query identifier, a hit flag, the class and the leaf identifier. On a miss, the controller runs the full tree, updates the replacement policy and applies the resulting deletions and insertions in P4Runtime writes. Because queries enter and leave through the controller channel, the prototype needs no network interfaces.
+
+## Encoding for Tofino-1
+
+Tofino-1 limits range keys to about 20 bits per table, so the ten 32-bit range keys of the BMv2 table do not fit. We therefore split the lookup in two stages. For each feature, two static tables write a thermometer code with one bit per distinct threshold of that feature in the tree: bit $j$ is set when the value exceeds threshold $j$. A coarse table matches the top 20 bits of the feature key as a range; a fine table, applied first, matches the few 4,096-key buckets that contain a threshold exactly on the top 20 bits and as a 12-bit range on the rest. The leaf table is ternary over the concatenated codes. Because a thermometer code is monotone, a leaf box $lo < x \le hi$ needs only two cared-for bits per feature, bit($lo$) set and bit($hi$) clear, so each leaf is still exactly one entry. The key width equals the number of distinct (feature, threshold) pairs: 361 bits for the depth-10 tree and 602 bits for depth 12, which exceeds the ternary key budget. We therefore deploy the depth-10 tree (394 leaves), which lies on the Pareto frontier of Section 5.3. The encoding reproduces the tree's leaf assignment exactly, which unit tests check at every split threshold.
 
 # Methodology
 
@@ -148,6 +152,31 @@ Table: Prototype checks and measurements on BMv2 (8 entries, decayed LFU, 30,000
 
 On BMv2, a hit took 0.21 ms at the median (0.28 ms at the 99th percentile), measured by the controller from packet-out to packet-in. A miss took 0.85 ms at the median, of which 0.13 ms was the full tree and 0.49 ms the P4Runtime writes. BMv2 accepted 3,866 single-entry insertions per second and 33,622 per second in batches of 100. With decayed LFU writing about 0.11 entries per flow on the full stream, single-entry writes would sustain roughly 35,000 flows per second on this software switch; batching or a hardware control plane would change that figure, and we do not extrapolate it to an ASIC.
 
+## Tofino-1 hardware
+
+We deployed the encoding on a UfiSpace S9180-32X switch (Tofino-1, SDE 9.13.2) with two servers on 25 Gb/s links. Vision sends queries into the switch. A hit is answered by the switch and reflected back to Vision; a miss is forwarded to Hulk, whose C program runs the full depth-10 tree on the CPU and replies through the switch, while a digest informs the controller on the switch CPU. The controller runs decayed LFU with 8 resident leaves. Because hits never reach the controller, it credits resident leaves from their hit counters every 20 ms. As a CPU-only baseline, we set K to 0, so every query takes the Hulk path through the same switch and links. The compiled program uses all 12 ingress stages, with the leaf table in the last one. Each configuration ran three times from a cold cache on the two 30,000-flow slices of Section 5.5.
+
+All 36 runs answered all 1,080,000 queries, and the served class and leaf equaled the offline tree for every query. At 1,000 queries per second, the switch served 95.6% of the full-stream slice and 84.6% of the benign slice, against 96.3% and 88.5% for the ideal decayed LFU of the simulator, which BMv2 matched exactly. The gap comes from control-plane lag: the controller needed 6.1 ms at the median (24.4 ms at the 99th percentile) from a digest to a completed table write, and a simulator of the implementable policy with a lag of 10 to 50 queries brackets both hardware hit rates.
+
+Table 2 and Figure 7 compare the latencies. A switch hit took 362 ns from ingress to egress in the pipeline (391 ns at the 99th percentile). Measured at Vision, a hit returned after 102.5 µs at the median, a miss answered by Hulk after 232 µs, and a query in the CPU-only configuration after 300.7 µs. The CPU computation itself is not the cost: Hulk classifies a query in about 30 ns in memory. The difference comes from the extra network hop and the host network stacks, which also dominate the hit round trip: at 100,000 queries per second the hit round trip fell to 32.5 µs, which we attribute to interrupt coalescing on the hosts rather than to the switch.
+
+Table: Latency on the Tofino-1 testbed at 1,000 queries/s (full-stream slice, three runs pooled).
+
+| path | median | 99th percentile |
+|---|---|---|
+| switch pipeline, hit (on-chip timestamps) | 362 ns | 391 ns |
+| round trip at Vision, switch hit (MVM) | 102.5 µs | 133.0 µs |
+| round trip at Vision, miss answered by Hulk (MVM) | 232.2 µs | 324.7 µs |
+| round trip at Vision, CPU only (K=0) | 300.7 µs | 338.1 µs |
+| CPU computation only, Hulk, one core | 30 ns | – |
+
+![Round trip measured at Vision at 1,000 queries/s on the Tofino-1 testbed: switch hits, misses answered by Hulk, and the CPU-only configuration.](../../figures/w8_rtt_cdf.pdf){width=55%}
+
+As shown in Figure 8, both configurations answered every query up to 100,000 queries per second, and MVM's median round trip stayed two to three times lower than the CPU-only configuration at every load. The switch hit rate, however, fell from 95.6% at 1,000 queries per second to between 67.6% and 80.9% at 5,000 to 100,000 queries per second, and the decline was not monotone. The reason is that a fixed control-plane delay spans more queries as the rate grows, so more repeats of a newly missed leaf arrive before its entry is installed; the non-monotone shape may also reflect runs at the highest rates that end within a few hundred milliseconds, before the controller has reacted. Consequently, the replacement policy that works on the simulator needs a faster control path, or decisions made in the data plane, to hold its hit rate at high load.
+
+![Load sweep on the Tofino-1 testbed (full-stream slice, mean of three runs). Left: switch hit rate of MVM. Right: median round trip at Vision for MVM and the CPU-only configuration.](../../figures/w8_load_sweep.pdf){width=95%}
+
+
 # Related Work
 
 **In-network classification.** IIsy [1] runs a small model in the switch and a larger model on a backend, and updates models through table writes. NetBeacon [2] classifies flows in several phases and stops early once confident. Leo [3] runs decision trees at multi-terabit rates on Tofino and reprograms them at runtime without downtime, and SpliDT [5] splits a tree into subtrees to reuse pipeline resources. Planter [4] and Mousika [6] map trained models onto switch targets. These systems decide the in-switch model before deployment or swap whole models. Compared to them, MVM keeps part of a single tree resident and selects that part from the traffic, and we measure how large that part needs to be.
@@ -158,7 +187,7 @@ On BMv2, a hit took 0.21 ms at the median (0.28 ms at the 99th percentile), meas
 
 # Conclusion
 
-We measured how much of a decision tree real network traffic uses and whether a switch can hold only that part. Under a split without duplicate leakage, a tree of about 650 leaves classifies as well as the unpruned tree of 1,880 leaves, while the unpruned tree needs almost twice as many leaves to serve 90% of benign flows. Attack flows use 2 to 18 leaves per type and benign traffic 43, and an 8-entry table managed by decayed LFU serves 94.7% of all flows, within 1.7 points of the offline optimum. The BMv2 prototype reproduced the full tree's predictions on every replayed query. Future work should repeat the study with the official training sample and on a second dataset, and port the table to Tofino with quantized feature keys.
+We measured how much of a decision tree real network traffic uses and whether a switch can hold only that part. Under a split without duplicate leakage, a tree of about 650 leaves classifies as well as the unpruned tree of 1,880 leaves, while the unpruned tree needs almost twice as many leaves to serve 90% of benign flows. Attack flows use 2 to 18 leaves per type and benign traffic 43, and an 8-entry table managed by decayed LFU serves 94.7% of all flows, within 1.7 points of the offline optimum. The BMv2 prototype and the Tofino-1 deployment reproduced the full tree's predictions on every replayed query, and on Tofino-1 a switch hit took 362 ns in the pipeline. Future work should repeat the study with the official training sample and on a second dataset, and move the replacement decisions closer to the data plane, since control-plane lag cost up to 28 points of hit rate at high load.
 
 # References {-}
 

@@ -1,0 +1,12 @@
+{
+ "depth": 10,
+ "class_weight": "balanced",
+ "n_leaves": 394,
+ "key_width": 361,
+ "coarse_entries": 369,
+ "fine_entries": 720,
+ "val_macro_f1": 0.9418758091548842,
+ "test_macro_f1": 0.8147788266991578,
+ "slice_full_0425_to_0426": 30000,
+ "slice_benign_0427_to_0428": 30000
+}

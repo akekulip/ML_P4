@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import numba
 import numpy as np
 
-__all__ = ["SimResult", "simulate", "simulate_fast", "LRU", "LFU", "DecayedLFU", "StaticTopK", "WindowOracle", "Belady"]
+__all__ = ["SimResult", "simulate", "simulate_fast", "simulate_hw_policy", "LRU", "LFU", "DecayedLFU", "StaticTopK", "WindowOracle", "Belady"]
 
 
 @dataclass(frozen=True)
@@ -287,3 +287,51 @@ def _fill_next_use(seq, next_use, last_seen):
         if last_seen[seq[i]] >= 0:
             next_use[i] = last_seen[seq[i]]
         last_seen[seq[i]] = i
+
+
+def simulate_hw_policy(leaf_ids: np.ndarray, k: int, gamma: float, lag: int, poll: int,
+                       clock: str = "miss") -> np.ndarray:
+    """Decayed LFU as the Tofino controller can implement it; returns the hit flag per query.
+
+    A miss reaches the controller `lag` queries later (digest + processing), which then credits
+    the leaf and installs it (evicting the lowest decayed score), so repeats inside the lag still
+    miss. Hits never reach the controller: they are credited in batches every `poll` queries from
+    the direct counters. With clock="miss" the controller's time is the largest query id it has
+    seen in a digest (as on hardware); clock="query" uses the true query index. With lag=0,
+    poll=1 and clock="query" this reduces exactly to simulate_fast("dlfu").
+    """
+    from collections import deque
+
+    lng = np.log(gamma)
+    score, last, resident = {}, {}, set()
+    credits: dict[int, int] = {}
+    queue: deque = deque()
+    t_ctl = 0
+    hits = np.zeros(len(leaf_ids), dtype=bool)
+
+    def credit(leaf, t, n=1):
+        prev = score[leaf] * gamma ** (t - last[leaf]) if leaf in score else 0.0
+        score[leaf], last[leaf] = prev + n, t
+
+    for t, leaf in enumerate(leaf_ids.tolist()):
+        while queue and queue[0][0] <= t:                 # digests that have reached the controller
+            _, lf, qid = queue.popleft()
+            t_ctl = max(t_ctl, qid)
+            credit(lf, t_ctl)
+            if k > 0 and lf not in resident:
+                if len(resident) >= k:
+                    victim = min(resident, key=lambda j: (float(np.log(score[j]) - last[j] * lng), last[j]))
+                    resident.remove(victim)
+                resident.add(lf)
+        if poll and t > 0 and t % poll == 0 and credits:  # counter poll: credit resident hits
+            now = (t - 1) if clock == "query" else t_ctl
+            for lf, c in credits.items():
+                if lf in resident:
+                    credit(lf, now, c)
+            credits.clear()
+        if leaf in resident:
+            hits[t] = True
+            credits[leaf] = credits.get(leaf, 0) + 1
+        else:
+            queue.append((t + lag, leaf, t))
+    return hits
