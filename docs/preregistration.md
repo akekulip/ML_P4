@@ -86,3 +86,9 @@ H1 is also reported, as secondary results, on (ii) the attacker's own attack cla
   - **Filter:** the same parser filter as the PeerRush loader (IPv4 without options or fragmentation, TCP or UDP).
   - **Detectors:** the new-flow-rate and volumetric thresholds are set at the benign p99 of the primary-day slice, measured in 1-second bins.
   - **Reporting:** every G2 number is reported on both days. A result that holds on only one day is reported as such.
+- 2026-09-23 (after four single-clock MAWI runs had been viewed; before the grid below): **G2a, the benign baseline on MAWI.**
+  - **Runner:** `scripts/g2_mawi.py`. Two flow-size gates per configuration: `model` (the shipped PeerRush-trained flow-size model) and `oracle` (a flow may take a slot iff it truly has more than 50 packets in the slice, NetBeacon's long-flow definition). The gate mismatch is treated as a design factor, not a caveat: `model` is the worst case for occupancy, `oracle` a deployment-appropriate case.
+  - **Runs (both days, both gates):** unkeyed CRC at 30 clock starts (grid 0 to 29); irreducible-polynomial CRC with keys 0 to 29 at clock grid 0. That is 240 runs; the four single-clock runs already made are grid-0 members of the set.
+  - **Metrics (no accuracy labels exist on MAWI):** downgraded-flow share and downgraded-packet share (definition as in G1b: refused by an active holder, or displaced after holding a slot); refusals at never-used slots reported separately; slot takeovers; memo share. Reported per day and per gate.
+  - **Uncertainty:** the draw is the unit (30 clocks, 30 keys); intervals by percentile bootstrap over draws.
+  - **Use:** the reference against which G2b attack arms are measured, and the benign new-flow and byte rates already fixed above set the detector thresholds.
