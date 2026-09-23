@@ -7,7 +7,7 @@ benign-only (file order), K in {1..64}, and policies:
   window_oracle_hour                 each hour's true top-K preloaded (not deployable)
   belady                             offline optimum (MIN with bypass); upper bound for demand policies
 Outputs per unit: summary rows (hit rate, inserts, evictions, churn) and hourly hit counts, from
-which the report derives recovery after each local-day (attack-phase) boundary and regret vs Belady.
+which the report derives regret vs Belady (recovery after phase changes: experiments/w4_recovery.py).
 
 Usage: w4_cache.py --job MODE SEED | --quick | --merge   (driven by experiments/overnight.sh)
 """
@@ -42,10 +42,11 @@ def load_keys() -> pd.DataFrame:
 
 def static_warm(leaf, hour, k):
     """Top-K leaves of the first hour, fixed for the whole stream (inserted once)."""
-    warm = leaf[hour == hour[0]]
-    ids, cnt = np.unique(warm, return_counts=True)
+    in_warm = hour == hour[0]
+    ids, cnt = np.unique(leaf[in_warm], return_counts=True)
     top = ids[np.lexsort((ids, -cnt))[:k]]
-    return np.isin(leaf, top), len(top), 0
+    hits = np.isin(leaf, top) & ~in_warm  # the table is installed only after the warm-up hour
+    return hits, len(top), 0
 
 
 def window_oracle(leaf, hour, k):

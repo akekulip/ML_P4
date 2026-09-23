@@ -82,12 +82,18 @@ class DecayedLFU(_Policy):
     def _current(self, leaf: int, t: int) -> float:
         return self.score[leaf] * self.gamma ** (t - self.last[leaf])
 
+    def _evict_key(self, leaf: int) -> float:
+        # S * gamma**(t - last) = gamma**t * exp(log S - last * ln gamma): the common factor gamma**t
+        # drops out, so this time-free key orders residents exactly and never underflows
+        # (gamma**n reaches 0.0 after ~7e4 steps at gamma=0.99; code review 2026-09-22).
+        return float(np.log(self.score[leaf]) - self.last[leaf] * np.log(self.gamma))
+
     def access(self, t, leaf):
         prev = self._current(leaf, t) if leaf in self.score else 0.0
         hit = leaf in self.resident
         if not hit:
             if len(self.resident) >= self.k:
-                victim = min(self.resident, key=lambda j: (self._current(j, t), self.last[j]))
+                victim = min(self.resident, key=lambda j: (self._evict_key(j), self.last[j]))
                 self.resident.remove(victim)
                 self.evictions += 1
             self.resident.add(leaf)
@@ -184,6 +190,7 @@ def simulate(policy: _Policy, leaf_ids: np.ndarray, k: int) -> SimResult:
 @numba.njit(cache=True)
 def _decayed_lfu_kernel(seq, n_ids, k, gamma):
     n = len(seq)
+    lng = np.log(gamma)
     hits = np.zeros(n, dtype=np.bool_)
     score = np.zeros(n_ids)
     last = np.full(n_ids, -1, dtype=np.int64)
@@ -200,7 +207,7 @@ def _decayed_lfu_kernel(seq, n_ids, k, gamma):
                 best, best_s, best_l = -1, np.inf, np.iinfo(np.int64).max
                 for j in range(k):
                     r = resident[j]
-                    s = score[r] * gamma ** (t - last[r])
+                    s = np.log(score[r]) - last[r] * lng  # time-free eviction key, see DecayedLFU
                     if s < best_s or (s == best_s and last[r] < best_l):
                         best, best_s, best_l = j, s, last[r]
                 is_res[resident[best]] = False

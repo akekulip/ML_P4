@@ -36,13 +36,13 @@ loc = pd.read_parquet(loc_path) if loc_path.exists() else None
 
 lines = ["# W4 / RQ4 results: leaf-cache policies", "",
          "Data-plane DTs from W2 (stand-in training pools), replayed in file order. K = resident leaf entries. "
-         "Mean over 5 seeds. Demand policies start cold. Belady is the offline optimum for any policy that "
+         "Mean over 5 seeds. Churn counts inserts + evictions per flow (a replacement = one P4Runtime DELETE + one INSERT). Demand policies start cold. Belady is the offline optimum for any policy that "
          "changes at most one entry per miss; the hourly oracle preloads each hour's top-K (not deployable). "
          "'Best static in hindsight' is C(K) from W3: the K most frequent leaves of the whole stream.", ""]
 
 for mode in ("grouped", "forward"):
     for stream in ("full", "benign"):
-        for depth in ("10", "None"):
+        for depth in ("6", "10", "None"):
             t = s[(s["mode"] == mode) & (s.stream == stream) & (s.depth == depth)]
             if t.empty:
                 continue
@@ -59,25 +59,7 @@ for mode in ("grouped", "forward"):
             gap = (hr.loc["belady"] - hr.loc["dlfu_0.99"])
             lines += ["", f"Regret of decayed LFU (γ=0.99) vs Belady, in hit rate: " + ", ".join(f"K={k}: {v:.3f}" for k, v in gap.items()), ""]
 
-# Recovery after local-day (attack-phase) boundaries: hours until the hourly hit rate returns to
-# within 5 points of that day's median hourly hit rate (grouped, full stream, depth 10, K=8).
-h = hourly[(hourly["mode"] == "grouped") & (hourly.stream == "full") & (hourly.depth == "10") & (hourly.K == 8)].copy()
-h["day"] = h.hour.str[:10]
-h["rate"] = h.hits / h.n
-rec_rows = []
-for (pol, seed), g in h.groupby(["policy", "seed"]):
-    g = g.sort_values("hour")
-    for day, d in g.groupby("day", sort=True):
-        target = d.rate.median() - 0.05
-        ok = np.flatnonzero(d.rate.to_numpy() >= target)
-        rec_rows.append({"policy": pol, "seed": seed, "day": day, "first_hour_rate": d.rate.iloc[0],
-                         "hours_to_recover": int(ok[0]) if len(ok) else np.nan})
-rec = pd.DataFrame(rec_rows)
-if not rec.empty:
-    tbl = rec.groupby(["day", "policy"]).hours_to_recover.mean().unstack("policy").reindex(columns=[p for p in POLICIES if p in rec.policy.unique()])
-    lines += ["## Recovery after each local-day boundary (grouped, full stream, depth 10, K=8)", "",
-              "Hours until the hourly hit rate is within 5 points of that day's median (mean over seeds 0-2).", "",
-              tbl.round(1).to_markdown(), ""]
+lines += ["Recovery after attack-phase changes is in docs/results_w4_recovery.md (experiments/w4_recovery.py).", ""]
 
 (OUTDIR or ROOT / "docs").joinpath("results_w4.md").write_text("\n".join(lines))
 print("\n".join(lines))
@@ -103,6 +85,8 @@ for ext in ("pdf", "png"):
     fig.savefig(FIG / f"w4_hit_rate_vs_k.{ext}", dpi=150)
 
 # Figure 2: hourly hit rate over time at K=8 for four policies, with attack share below (no dual axis).
+h = hourly[(hourly["mode"] == "grouped") & (hourly.stream == "full") & (hourly.depth == "10") & (hourly.K == 8)].copy()
+h["rate"] = h.hits / h.n
 show = ["belady", "dlfu_0.99", "lru", "static_warm"]
 fig, axes = plt.subplots(2, 1, figsize=(7.16, 3.8), sharex=True, gridspec_kw={"height_ratios": [2.2, 1]})
 seed0 = h[h.seed == 0]

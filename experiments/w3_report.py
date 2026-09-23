@@ -86,7 +86,10 @@ for mode in ("grouped", "forward"):
     pts = pd.DataFrame({"f1": ff.iid_f1, "W90_full": A[("W90", "mean")], "W90_benign": B[("W90", "mean")]}).dropna()
     nd = [d for d in pts.index if not any((pts.f1 >= pts.loc[d, "f1"]) & (pts.W90_benign <= pts.loc[d, "W90_benign"])
                                           & ((pts.f1 > pts.loc[d, "f1"]) | (pts.W90_benign < pts.loc[d, "W90_benign"])))]
-    lines += [f"Pareto-optimal depths ({mode}; IID macro-F1 vs benign W90): {', '.join(nd)}", ""]
+    vbest = f1[f1["mode"] == mode].loc[lambda x: x.groupby("seed").val_f1.idxmax()].depth.value_counts()
+    lines += [f"Pareto-optimal depths ({mode}; IID macro-F1 on test vs benign W90, a descriptive view): {', '.join(sorted(nd, key=DEPTHS.index))}",
+              f"Validation-selected depth per seed ({mode}; the protocol's model choice): "
+              + ", ".join(f"depth {d} x{n}" for d, n in vbest.items()), ""]
 
 dr = drift[(drift["mode"] == "grouped") & (drift.depth == "10")]
 top = dr.nlargest(8, "js_prev")[["hour", "js_prev", "attack_frac", "n"]]

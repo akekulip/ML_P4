@@ -7,8 +7,8 @@ total pooled per type is capped at 50% of its eligible rows.
 Split modes (methodology review 2026-09-22):
   random   rows sampled independently; exact-duplicate flows leak across pools (kept only to
            quantify that inflation)
-  grouped  each distinct data-plane feature vector is eligible for exactly one pool, fixed by
-           hash (60/20/20), so no test vector was seen in training and val groups never reach test
+  grouped  each distinct data-plane feature vector is eligible for exactly one pool (60/20/20,
+           by a seed-mixed hash), so no test vector was seen in training and val groups never reach test
   forward  grouped, and pools draw only from the first half (by ts) of each local day; the
            replay covers only the second halves, so no within-day future is used for training
 Every pooled row is removed from the replay. Days are Canberra local time (Australia/Sydney).
@@ -76,6 +76,16 @@ def _quota(t: str, n_eligible: dict[str, int]) -> dict[str, int]:
     return {p: min(v, n_eligible.get(p, 0)) for p, v in q.items()}
 
 
+def _group_pool(vkey: np.ndarray, seed: int) -> np.ndarray:
+    """Pool code (0 train, 1 val, 2 test; 60/20/20) of each distinct feature vector for this seed.
+    The seed is mixed into the vector hash, so the group partition itself varies across seeds
+    (code review 2026-09-22: a seed-independent partition hid split variance)."""
+    mix = np.uint64((0x9E3779B97F4A7C15 * (seed + 1)) & 0xFFFFFFFFFFFFFFFF)
+    h = vkey.astype(np.uint64) ^ mix
+    h = (h ^ (h >> np.uint64(31))) * np.uint64(0xBF58476D1CE4E5B9)  # splitmix64 finalizer step
+    return np.digitize((h % np.uint64(1000)).astype(np.int64), [600, 800])
+
+
 def sample_pools(keys: pd.DataFrame, mode: str, seed: int) -> tuple[pd.DataFrame, np.ndarray]:
     """Return (pooled rows with a `pool` column, boolean replay mask over global_idx)."""
     assert mode in SPLIT_MODES
@@ -89,7 +99,8 @@ def sample_pools(keys: pd.DataFrame, mode: str, seed: int) -> tuple[pd.DataFrame
             elig = {"train": g, "val": g, "test": g}
             n_elig = {"train": len(g) * 3 // 5, "val": len(g) // 5, "test": len(g) // 5}
         else:
-            elig = {p: g[g.group_pool == p] for p in ("train", "val", "test")}
+            gp = _group_pool(g.vkey.to_numpy(), seed)
+            elig = {p: g[gp == code] for code, p in enumerate(("train", "val", "test"))}
             n_elig = {p: len(v) for p, v in elig.items()}
         q = _quota(t, n_elig)
         if mode == "random":

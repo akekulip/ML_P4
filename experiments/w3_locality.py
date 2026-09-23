@@ -49,6 +49,7 @@ def load_keys() -> pd.DataFrame:
     keys = pd.read_parquet(ROOT / "data/processed/keys.parquet", columns=KEY_COLS)
     for c in ("type", "day", "hour"):  # parquet round-trips these as strings; codes are what we use
         keys[c] = keys[c].astype("category")
+    assert np.array_equal(keys.global_idx.to_numpy(), np.arange(len(keys))), "row position != global_idx"
     return keys
 
 
@@ -150,13 +151,11 @@ def run_unit(keys: pd.DataFrame, mode: str, seed: int, depths=DEPTHS, max_rows=N
 
 
 def verify_alignment(keys: pd.DataFrame) -> None:
-    """replay_order must reproduce iter_replay's order (first non-empty file, seed 0, each mode)."""
+    """replay_order must reproduce iter_replay's order exactly, over every file (seed 0, each mode)."""
     for mode in MODES:
         mask = np.load(W2 / mode / "replay_mask_seed0.npy")
-        for _, _, g in iter_replay(ROOT / "data/processed/network", keys, mask, ["ts", "src_bytes", "row_in_file"]):
-            if len(g):
-                assert np.array_equal(replay_order(keys, mask)[: len(g)], g), mode
-                break
+        parts = [g for _, _, g in iter_replay(ROOT / "data/processed/network", keys, mask, ["ts", "src_bytes", "row_in_file"])]
+        assert np.array_equal(replay_order(keys, mask), np.concatenate(parts)), mode
 
 
 def main():

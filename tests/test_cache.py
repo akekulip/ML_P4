@@ -89,3 +89,14 @@ def test_fast_simulator_matches_reference_policy(kind, cls, kw, k):
     assert fast.hits.tolist() == ref.hits.tolist()
     assert (fast.inserts, fast.evictions) == (ref.inserts, ref.evictions)
     assert fast.max_resident <= k
+
+
+@pytest.mark.parametrize("fast", [False, True])
+def test_decayed_lfu_keeps_true_order_after_long_idle_gap(fast):
+    # A: 50 accesses, then B: 1 access, then C hits for 100k flows (gamma**100k underflows to 0.0).
+    # Decayed scores: A ~ 39.5*g^(t-49) > B = g^(t-50), so the new leaf D must evict B, not A.
+    from mvm.cache import simulate_fast
+
+    seq = np.array([0] * 50 + [1] + [2] * 100_000 + [3, 0, 1])
+    r = simulate_fast("dlfu", seq, 3, gamma=0.99) if fast else simulate(DecayedLFU(gamma=0.99), seq, 3)
+    assert r.hits[-2:].tolist() == [True, False]  # A still resident, B was evicted
