@@ -60,7 +60,7 @@ Agreed by the expert round table on 2026-09-23 and approved by Philip. The full 
 - **T-exhaust (primary).**
   - An external sender, possibly spoofing sources, needing no replies.
   - **K1:** the attacker knows the public P4 defaults (hash, table size, timeouts, short-flow predictor).
-    **K0:** the attacker knows none of them. **Keyed-hash variant:** the hash seed is salted per boot.
+    **K0:** the attacker knows none of them. **Keyed-hash variant:** a secret irreducible CRC polynomial, redrawn per boot. A plain salt is not a key: CRC is affine over GF(2), so a salt shifts every slot by one constant and changes no collision (measured in G1b).
   - The budget ρ is reported three ways:
     - new flows/s against the victim's slot reclamation rate (the binding unit);
     - slot-seconds held;
