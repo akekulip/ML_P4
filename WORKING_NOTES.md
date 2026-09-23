@@ -469,3 +469,8 @@ the backend). The P4/BMv2 part is the deployment proof.
 - Naming hazard: the primary day prefix `p` collides with the defence suffix `_p_`; defended files end in `_p_d<name>.npz`. Monitors must match that suffix, not `_p_`.
 - Pending on Philip: CICIoT2023 attack folders (G3); approval for the SDE-model diff and the compile-only fit check on the switch host.
 - Next: G4a report (`scripts/g4_report.py`) when the runs finish; defended PeerRush accuracy; then the plan revision.
+
+## 2026-09-23 (night): fill grid paused, G4a prioritised
+- Available memory fell to 1 GB while the fill grid (about 4.5 GB per job at f = 25%), G4a and a separate ML_FDNA job (about 16 cores, 6 GB, another session's `run_baselines.py`) all ran. The fill pool was stopped by PID (no partial outputs). Finished fill runs: 233 of 960.
+- To resume the fill grid: rerun the staged command with the job lists `g2b_stage1.txt`, `g2b_stage2.txt` and `g2b_model.txt` (scratchpad), launcher `run_g2b.sh` (uses `results/frozen_src`).
+- G4a runs as two pools (forward and reverse job order, parallelism 2 each).
