@@ -318,6 +318,11 @@ class NetBeaconSim:
     hash_kind: str = "crc"               # crc | xorsalt | poly | tab (see :func:`flow_hash`)
     hash_seed: int | None = None         # draws the hash secret, independent of the clock
     takeover_refresh: bool = False       # robustness switch: a takeover also refreshes last_classified (sw:626 does not)
+    fix_ipd_wrap: bool = False           # D1: the packet-gap timestamp keeps bits [41:10] of the clock (no 4.295 s wrap)
+    rent: str | None = None              # D3: None, "credit" (deployable), "age" (evict after grace), "rate" (literal, emulator-only)
+    rent_rmin: float = 8.0               # packets per second an incumbent must sustain to keep its slot
+    rent_grace_s: float = 1.0            # an incumbent younger than this is always protected
+    rent_cap_s: float = 2.0              # credit cannot be banked more than this far ahead of now
     wrap_window: bool = True             # robustness switch: False uses an unwrapped clock (no 4.295 s eviction window)
     square: Callable[[int], int] = field(default=sqr)
 
@@ -368,11 +373,21 @@ class NetBeaconSim:
             long_ = long_ | np.asarray(force_long, dtype=bool)
         t32 = (pk["ts_ns"].astype(np.int64) + offset) & _M32
         now_a, ipd_a = t32 >> 20, t32 >> 10
+        if self.fix_ipd_wrap:
+            ipd_a = ((pk["ts_ns"].astype(np.int64) + offset) >> 10) & _M32
         if not self.wrap_window:
             now_a = (pk["ts_ns"].astype(np.int64) + offset) >> 20                    # unwrapped clock
         rejected = ~np.isin(pk["proto"], (6, 17)) | ((pk["proto"] == 17) & (pk["src_port"] == 68))
 
         r_hash, r_res, r_lastc, claimed = [0] * S, [0] * S, [0] * S, [False] * S
+        r_t0, r_v = [0.0] * S, [0.0] * S          # D3 registers: takeover time and credit horizon (clock units)
+        if self.rent not in (None, "credit", "age", "rate"):
+            raise ValueError(f"unknown rent mode {self.rent!r}")
+        if self.rent is not None and self.wrap_window:
+            raise ValueError("rent admission assumes the fixed clock: use wrap_window=False (D1)")
+        upsec = 1e9 / (1 << 20)                   # clock units (2^20 ns) per second
+        grace_u, cap_u = self.rent_grace_s * upsec, self.rent_cap_s * upsec
+        credit_u = upsec / self.rent_rmin
         r_pk, r_by, r_mn, r_mx, r_ps = [0] * S, [0] * S, [0] * S, [0] * S, [0] * S
         r_lts, r_mipd, r_b1, r_b2, r_epoch = [0] * S, [0] * S, [0] * S, [0] * S, [-1] * S
 
@@ -420,11 +435,16 @@ class NetBeaconSim:
                     lastc = (now - r_lastc[s]) & _M32 if self.wrap_window else now - r_lastc[s]      # sw:268
                     if not lg_l[j]:
                         outcome[i] = FALLBACK_SHORT
-                    elif r_res[s] < 50 and lastc < self.timeout_units and (claimed[s] or (isolate is None and self.wrap_window)):
+                    elif (r_res[s] < 50 and lastc < self.timeout_units and (claimed[s] or (isolate is None and self.wrap_window))
+                          and not (self.rent is not None and claimed[s] and now - r_t0[s] >= grace_u
+                                   and (self.rent == "age"
+                                        or (self.rent == "credit" and now > r_v[s])
+                                        or (self.rent == "rate" and r_pk[s] * upsec < self.rent_rmin * (now - r_t0[s]))))):
                         outcome[i] = FALLBACK_COLLISION if claimed[s] else FALLBACK_EMPTY
                     else:                                             # takeover (sw:610-620)
                         outcome[i] = NEW_OWNER
                         claimed[s] = True
+                        r_t0[s], r_v[s] = now, now + grace_u
                         if self.takeover_refresh:
                             r_lastc[s] = now
                         r_hash[s], r_pk[s], r_by[s], r_mn[s], r_mx[s] = h, 1, L, L, L
@@ -439,6 +459,8 @@ class NetBeaconSim:
                     continue                                          # verdict: Pkt_Tree (sw:623, 722)
                 outcome[i] = OWNER
                 r_lastc[s] = now                                      # sw:626
+                if self.rent == "credit":
+                    r_v[s] = min(r_v[s] + credit_u, now + cap_u)
                 e = r_epoch[s]
                 if r_res[s] < 50:                                     # sw:627
                     if (L & _BIN_MASK) == _BIN1_VALUE:
