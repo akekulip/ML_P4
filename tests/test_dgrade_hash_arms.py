@@ -99,9 +99,9 @@ def test_hash_seed_and_clock_are_independent():
 
 # ---- irreducible polynomials and seed requirements (code review 2026-09-23) ----
 
-import pytest  # noqa: E402
+import pytest
 
-from dgrade.netbeacon_sim import is_irreducible  # noqa: E402
+from dgrade.netbeacon_sim import is_irreducible
 
 
 def test_irreducible_counts_match_known_values():
