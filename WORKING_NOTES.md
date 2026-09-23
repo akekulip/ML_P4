@@ -456,3 +456,16 @@ the backend). The P4/BMv2 part is the deployment proof.
 - The clock-wrap artefact refuses as many packets at empty slots as true collisions do under the oracle gate.
 - Per-run memory is about 7 GB even after the per-day precomputation. Parallelism 3.
 - In progress: K0 baselines (keyed hash at its own clock, 116 runs), then the chunked emulator loop, then the G2b fill pilot.
+
+## 2026-09-23 (evening): G2b fill, G4 core running
+- Done and committed:
+  - G2a (240 runs; `docs/results_g2a.md`);
+  - G2b fill runner and report; the pilot (1 draw) showed the fill excess per attacker packet is the same with slot knowledge (K1 vs B0-L about 1.03x), as predicted;
+  - targeted-arm module, runner and pilot, then **paused by Philip** (H2 stays open; recorded in the pre-registration);
+  - G4 pre-registered (statistician and Tofino reviews merged);
+  - emulator defences D1, D3 (credit, age-only, literal-rate); 146 tests pass.
+- Running: the G2b fill grid (960 runs, frozen source snapshot in `results/frozen_src` at commit cb86b43 plus `defences.py`) and the G4a core (500 runs, parallelism 2). The defended PeerRush runs (150) wait for memory; job list at `<scratchpad>/g4_peerrush_jobs.txt`, launcher `run_g4pr.sh`.
+- Memory is the constraint: about 3.7 GB per MAWI run at small fills, 8.5 GB at f = 90%, 2.5 GB for PeerRush. Never run more than about 6 workers together.
+- Naming hazard: the primary day prefix `p` collides with the defence suffix `_p_`; defended files end in `_p_d<name>.npz`. Monitors must match that suffix, not `_p_`.
+- Pending on Philip: CICIoT2023 attack folders (G3); approval for the SDE-model diff and the compile-only fit check on the switch host.
+- Next: G4a report (`scripts/g4_report.py`) when the runs finish; defended PeerRush accuracy; then the plan revision.
