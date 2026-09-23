@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from dgrade.defences import defence_kwargs
 from dgrade.netbeacon import load_tables
 from dgrade.netbeacon_sim import (
     FALLBACK_COLLISION,
@@ -68,27 +69,29 @@ GRID = 30
 WRAP_NS = 1 << 32
 
 
-def parse_job(job: str) -> tuple[str, int | None, int]:
-    """``KIND[:SEED]@GRID`` -> (kind, hash seed, clock offset in ns). KIND is iso, crc, xorsalt, poly or tab;
-    the clock is GRID/30 of the 4.295 s wrap period."""
+def parse_job(job: str) -> tuple[str, int | None, int, str]:
+    """``KIND[:SEED]@GRID[+DEFENCE]`` -> (kind, hash seed, clock offset in ns, defence name). KIND is iso, crc,
+    xorsalt, poly, polyirr or tab; the clock is GRID/30 of the 4.295 s wrap period."""
     left, _, g = job.partition("@")
+    g, _, dfn = g.partition("+")
     kind, _, seed = left.partition(":")
     if kind not in ("iso", "crc") and not seed:
         raise ValueError(f"job {job!r}: hash kind {kind!r} needs a seed (KIND:SEED@GRID)")
-    return kind, (int(seed) if seed else None), int(g) * (WRAP_NS // GRID)
+    return kind, (int(seed) if seed else None), int(g) * (WRAP_NS // GRID), dfn
 
 
 def run_job(job: str) -> None:
     if job.replace("_", "").isdigit() or "@" not in job:      # G1 seed runs (random clock from the seed)
         return run_g1_seed(job)
-    kind, hseed, offset = parse_job(job)
+    kind, hseed, offset, dfn = parse_job(job)
     pk, _ = load_stream()
     models = TableModels(load_tables(ART))
     if kind == "iso":
         out = NetBeaconSim(models=models, clock_offset_ns=offset).run(pk, isolate=flow_ids(pk, TUPLE_ONLY))
     else:
-        out = NetBeaconSim(models=models, clock_offset_ns=offset, hash_kind=kind, hash_seed=hseed).run(pk)
-    name = job.replace(":", "_").replace("@", "_at")
+        out = NetBeaconSim(models=models, clock_offset_ns=offset, hash_kind=kind, hash_seed=hseed,
+                           **defence_kwargs(dfn)).run(pk)
+    name = job.replace(":", "_").replace("@", "_at").replace("+", "_p_")
     np.savez_compressed(OUT / f"g1b_{name}.npz", outcome=out["outcome"], result=out["result"].astype(np.int16),
                         offset=offset)
     print(job, "done", np.bincount(out["outcome"], minlength=7))

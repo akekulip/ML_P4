@@ -117,6 +117,8 @@ def main() -> None:
 
     rows, outs = [], {}
     for path in sorted(glob.glob(str(OUT / "g1b_*.npz"))):
+        if "_p_d" in Path(path).name:          # defended runs (G4) are read by the G4 report
+            continue
         kind, seed, g = parse(path)
         if kind == "iso":
             continue
