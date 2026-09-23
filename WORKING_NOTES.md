@@ -414,3 +414,16 @@ the backend). The P4/BMv2 part is the deployment proof.
   1. Build a pcap→packet-array loader.
   2. Measure the benign-only downgrade rate at MAWI-like concurrency.
   3. Run G1 (H1) on NetBeacon.
+
+## 2026-09-23: repo regrouped
+- The MVM-Lite class project now lives in `mvm_lite/`, which holds:
+  - code (`src/mvm`, `src/p4gen`), `experiments/`, `hw/`, `p4/`, `figures/`;
+  - its tests and its docs (results docs and report);
+  - the untracked `data/` (TON_IoT) and `results/`.
+- Every script resolves paths relative to `mvm_lite/`. See `mvm_lite/README.md`.
+- The paper work stays at the top level: `src/dgrade`, `tests/test_dgrade_*`, the paper docs, `third_party/`, `data/raw/bos_datasets`, and `data/raw/CIC_IOT_Dataset2023`.
+- Verified after the move:
+  - 84 tests pass;
+  - `w7_numbers.py` regenerates `numbers.json` identically;
+  - the report rebuilds at 13 pages with all figures.
+- File paths in the entries above this one predate the move and are relative to `mvm_lite/`.

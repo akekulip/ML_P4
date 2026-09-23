@@ -1,6 +1,6 @@
 # ML_P4
 
-In-network decision-tree inference on Tofino-1 (MVM prototype, W1–W8). The current direction is the downgrade-attack paper in `docs/paper_plan.md`. History and status are in `WORKING_NOTES.md`.
+The MVM-Lite class project (in-network decision-tree inference on Tofino-1, W1–W8) lives in `mvm_lite/`; see `mvm_lite/README.md`. The current direction is the downgrade-attack paper in `docs/paper_plan.md` (code in `src/dgrade/`). History and status are in `WORKING_NOTES.md`.
 
 ## Standing rules
 - Every commit is authored by akekulip <akekulip@gmail.com>, with no co-author or attribution lines. Never push.

@@ -111,9 +111,9 @@ Agreed by the expert round table on 2026-09-23 and approved by Philip. The full 
   - **Ablation:** rent only / value only / both.
 
 ## 4. Implementation on the existing testbed
-- **Offline code** goes in a new package, `src/dgrade/`. It reuses the style of `src/mvm/cache.py`
+- **Offline code** goes in a new package, `src/dgrade/`. It reuses the style of `mvm_lite/src/mvm/cache.py`
   (numba kernels, checked against reference Python policies), `mvm.metrics`, and the block bootstrap
-  from `experiments/w2_rq1.py`.
+  from `mvm_lite/experiments/w2_rq1.py`.
   - `emulate.py`: a per-artifact policy emulator for storage, hash, timeout, predictor and fallback
     routing, written from each artifact's P4 and controller code.
   - `models.py`: loads NetBeacon's shipped trees and tables and BoS's retrained models, as full and fallback pairs.
@@ -127,11 +127,11 @@ Agreed by the expert round table on 2026-09-23 and approved by Philip. The full 
   - **NetBeacon:** a port of the artifact P4 (12 stages).
   - **BoS on-switch part:** a port from SDE 9.7.0 and a 2-pipe recirculation layout to our pipe
     layout, verified in G0. Its IMIS escalations go to a **labelled CPU stand-in on Hulk**, adapting
-    `hw/hulk_backend.c`.
+    `mvm_lite/hw/hulk_backend.c`.
   - **MVM:** control only, never counted as a victim.
-- **Traffic.** `hw/vision_client.c` is extended into a pcap replayer for benign packet-level traces, plus
+- **Traffic.** `mvm_lite/hw/vision_client.c` is extended into a pcap replayer for benign packet-level traces, plus
   an attack generator with a spoofed source set, run only inside the lab testbed. Controller, timestamp
-  and log plumbing are reused from `hw/controller.py`.
+  and log plumbing are reused from `mvm_lite/hw/controller.py`.
 - **Emulator validation.** Packet-for-packet on the same traces against both hardware victims, with
   divergence reported. This is the same pattern as the W8 per-query fidelity check.
 - **Defense P4.** Compiled next to NetBeacon, with its stage, SRAM and stateful-ALU report.

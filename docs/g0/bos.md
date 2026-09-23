@@ -86,7 +86,7 @@ Slots are never freed explicitly. A slot is reclaimed lazily by the first new fl
 - **Stage use** (Fig. 8, p.9): all 12 ingress stages and egress stages 0–9. SRAM 18–23%, TCAM 0.7–1.7% (Table 4, p.10).
 
 **Port to the UfiSpace S9180-32X with SDE 9.13.2.**
-- **Pipe layout.** Port **NV, not TB**: it needs no `.conf` surgery and no pipe-1 ports. Vision and Hulk sit on dev ports 8–10, all in pipe 0 (`hw/README.md:7`). The mirror session must target pipe-0 recirculation port 68.
+- **Pipe layout.** Port **NV, not TB**: it needs no `.conf` surgery and no pipe-1 ports. Vision and Hulk sit on dev ports 8–10, all in pipe 0 (`mvm_lite/hw/README.md:7`). The mirror session must target pipe-0 recirculation port 68.
 - **Pipe count.** The S9180-32X pipe count is INFERRED to be 2. Check it on the switch with `bfrt.tf1.device_configuration`.
 - **Timestamps.** Use NV's `global_tstamp`. Otherwise the replayer must write timestamps and labels into the MACs (`src[2:0]` = label, TB/BoS_testbed.p4:124).
 - **Externs.** CRCPolynomial `Hash`, `this.predicate` and saturating ops are all still present in TNA (INFERRED; unverified until the G4b compile). The `@stage` pins may need to move.
@@ -95,7 +95,7 @@ Slots are never freed explicitly. A slot is reclaimed lazily by the first new fl
 
 **IMIS.**
 - **Stack.** DPDK 20.11.9, PcapPlusPlus 22.11 patched for 64 lcores, libtorch 2.0.1+cu117 (`IMIS/system/README.md:7-14`). The paper setup used an A100 and CUDA 11.7 (p.8, p.20). The config expects about 33 cores and a 33 M mbuf pool (`configTemplate.json`).
-- **CPU stand-in.** The analyzer has `#ifdef CUDA` paths (`IMIS/system/commune/analyzerWorker.cpp:46-52,122-126`). However, the warm-up at line 141 is hard-wired to `kCUDA`, and `CMakeLists.txt:3` declares `project(IMIS CXX CUDA)`, so both need patching. A labelled CPU stand-in on Hulk only needs YaTC inference on the first 5 packets, which is simpler as a Python or C service fed by `hw/hulk_backend.c`.
+- **CPU stand-in.** The analyzer has `#ifdef CUDA` paths (`IMIS/system/commune/analyzerWorker.cpp:46-52,122-126`). However, the warm-up at line 141 is hard-wired to `kCUDA`, and `CMakeLists.txt:3` declares `project(IMIS CXX CUDA)`, so both need patching. A labelled CPU stand-in on Hulk only needs YaTC inference on the first 5 packets, which is simpler as a Python or C service fed by `mvm_lite/hw/hulk_backend.c`.
 
 ## Implications for G1/G2
 1. **Emulator core.**
