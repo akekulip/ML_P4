@@ -398,3 +398,19 @@ the backend). The P4/BMv2 part is the deployment proof.
   - Extract table sizes, hashes, timeouts, reclamation, predictor, T_esc and the collision budget, with `file:line`, into `docs/results_g0.md`.
 - Then G1: the downgrade gap (H1), tests first. H1–H5 are committed in a pre-registration file before G1 runs.
 - No switch time until the gates pass. G4b is compile-only.
+
+## 2026-09-23 (later): G0 done, emulator ready, waiting on data
+- Done and committed:
+  - G0 (`docs/results_g0.md`);
+  - pre-registration (`docs/preregistration.md`);
+  - NetBeacon table emulator (`src/dgrade/netbeacon.py`, 100% table-vs-tree fidelity);
+  - packet-level flow-state emulator (`src/dgrade/netbeacon_sim.py`).
+  84 tests pass.
+- The flow-state emulator has not yet had an independent code review (the builder agent was stopped; I wrote it directly).
+- Blocked on data:
+  - PeerRush from the BoS Google Drive folder, into `data/raw/`;
+  - CICIoT2023 pcaps, needed later for H4.
+- Next action once PeerRush lands:
+  1. Build a pcap→packet-array loader.
+  2. Measure the benign-only downgrade rate at MAWI-like concurrency.
+  3. Run G1 (H1) on NetBeacon.
