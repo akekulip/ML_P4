@@ -76,6 +76,12 @@ def mawi4_jobs() -> list[str]:
     return j
 
 
+def mawi5_jobs() -> list[str]:
+    """D4c at the fixed-budget sizes, the comparator named in G6 addendum 3."""
+    return [x for n, f in ((32768, 20), (16384, 40), (8192, 80)) for g in C10
+            for x in (f"g2_mawi.py p:oracle:crc@{g}+d4c~{n}", f"g2b_mawi.py p:oracle:b0l:{f}@{g}+d4c~{n}")]
+
+
 def pr_jobs() -> list[str]:
     j = [f"25:und@{g}" for g in C3 if g >= 10 and g not in (12, 18, 24)]          # extend undefended f = 25% to 30 draws
     j += [f"25:d4@{g}" for g in C3] + [f"0:d4@{g}" for g in C3] + [f"10:d4@{g}" for g in C3]
@@ -130,7 +136,7 @@ def _all_mawi(jobs):
 
 if __name__ == "__main__":
     kind = sys.argv[1]
-    jobs = mawi_jobs() if kind == "mawi" else mawi2_jobs() if kind == "mawi2" else mawi3_jobs() if kind == "mawi3" else mawi4_jobs() if kind == "mawi4" else pr_jobs()
+    jobs = mawi_jobs() if kind == "mawi" else mawi2_jobs() if kind == "mawi2" else mawi3_jobs() if kind == "mawi3" else mawi4_jobs() if kind == "mawi4" else mawi5_jobs() if kind == "mawi5" else pr_jobs()
     if "--check" in sys.argv:
         bad = check(kind, jobs)
         print("\n".join(bad) if bad else f"pairing ok ({len(jobs)} jobs)")

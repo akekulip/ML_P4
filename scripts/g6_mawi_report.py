@@ -123,7 +123,7 @@ def main() -> None:
               ("| f | arm | draws | E_und (flows) | E_arm | benign gain | R [draw CI] | R [benign-flow CI] | R > 0.5 (sign-flip p, Monte Carlo, unadjusted) | "
                "R packet-weighted [draw CI] | G4a-style | refusal share: und, arm (no attack) | refusal share: und, arm (fill) |"), "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for f in (10, 25, 50):
-            for arm in ("d4", "d5", "d4s", "d4a", "d4c"):
+            for arm in ("d4", "d5", "d4s", "d4a", "d4c", "d4d1", "d4age"):
                 a = series(d, f, arm, range(30))
                 if not len(a):
                     continue
@@ -249,13 +249,38 @@ def main() -> None:
     L += ["", "## M1 on MAWI: change in the downgraded-packet share with no attack (pass if the upper bound of the increase is at most 0.5 percentage points)", "",
           "| day | arm | draws | change vs undefended (pp; negative = fewer packets downgraded) | upper bound | M1 |", "|---|---|---|---|---|---|"]
     for d, dn in DAYS.items():
-        for arm in ("d4", "d5", "d4s", "d4a", "d4c"):
+        for arm in ("d4", "d5", "d4s", "d4a", "d4c", "d4d1", "d4age"):
             dl = [(pshare(d, g, 0, arm) - pshare(d, g, 0, "")) * 100 for g in range(30) if pshare(d, g, 0, arm) is not None and pshare(d, g, 0, "") is not None]
             if len(dl) < 3:
                 continue
             dl = np.array(dl)
             hi_ = float(np.percentile([np.random.default_rng(i).choice(dl, len(dl)).mean() for i in range(2000)], LVL_HOLM + (100 - LVL_HOLM) / 2))
             L.append(f"| {dn} | {arm} | {len(dl)} | {dl.mean():+.3f} | {hi_:+.3f} | {'pass' if hi_ <= 0.5 else 'fail'} |")
+
+    # addendum 3: D4 with the fixed clock, without and with age rent (exploratory)
+    L += ["", "## D4 with age rent on the fixed clock (exploratory, G6 addendum 3)", "",
+          ("Placement is the D4c rule in all three arms; D4d1 adds the D1 clock (no wrap window, takeover refresh, packet-gap fix) and D4age adds age-only eviction "
+           "of undetermined incumbents older than 1 s when both candidates are held. Primary day, oracle gate, clocks 0 to 9. Rule: an arm counts as helpful only if it passes "
+           "M1 and its recovery at 16,384 and 8,192 slots is above D4c's with non-overlapping draw intervals."), "",
+          "| table slots | holders (nominal f) | arm | draws | E_und | E_arm | benign gain | R [CI] | downgraded flows under fill: undefended, arm |", "|---|---|---|---|---|---|---|---|---|"]
+    rr: dict[tuple, tuple] = {}
+    for n_, f_ in ((65536, 10), (32768, 20), (16384, 40), (8192, 80)):
+        for arm in ("d4c", "d4d1", "d4age"):
+            a = series("p", f_, arm, range(10), n_)
+            if not len(a):
+                continue
+            r, lo, hi = rec_ci(a)
+            rr[(n_, arm)] = (r, lo, hi)
+            cs = [g for g in range(10) if flows("p", g, f_, "", n_) is not None and flows("p", g, f_, arm, n_) is not None]
+            L.append(f"| {n_:,} | {f_}% | {arm} | {len(a)} | {a[:, 0].mean():,.0f} | {a[:, 1].mean():,.0f} | {a[:, 2].mean():+,.0f} | {r:+.2f} [{lo:+.2f}, {hi:+.2f}] | "
+                     f"{np.mean([flows('p', g, f_, '', n_) for g in cs]):,.0f}, {np.mean([flows('p', g, f_, arm, n_) for g in cs]):,.0f} |")
+    dl = [(pshare("p", g, 0, "d4age") - pshare("p", g, 0, "")) * 100 for g in range(10) if pshare("p", g, 0, "d4age") is not None]
+    m1_ok = bool(len(dl) >= 3 and float(np.percentile([np.random.default_rng(i).choice(dl, len(dl)).mean() for i in range(2000)], 98.75)) <= 0.5)
+    beats = all((n_, "d4age") in rr and (n_, "d4c") in rr and rr[(n_, "d4age")][1] > rr[(n_, "d4c")][2] for n_ in (16384, 8192))
+    if dl:
+        L += ["", f"Verdict by the addendum's rule: M1 for D4age {'passes' if m1_ok else 'fails'} (no-attack downgraded-packet share change {np.mean(dl):+.3f} points); "
+                  f"recovery above D4c's at both 16,384 and 8,192 slots with non-overlapping intervals: {'yes' if beats else 'no'}. "
+                  f"**D4age is {'helpful' if (m1_ok and beats) else 'not shown to be helpful'} under this rule.**"]
 
     # doubled table, both days (exploratory baseline 5 of the paper plan)
     L += ["", "## Exploratory baseline: double the table (baseline 5 of the paper plan; added after review)", "",

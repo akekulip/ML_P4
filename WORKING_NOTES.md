@@ -2,10 +2,11 @@
 
 Plan: `/home/philip/.claude/plans/write-this-down-and-snappy-spindle.md` (section "8-hour autonomous run"). Rules: commits only as akekulip, no trailers, no push, nothing on the switch.
 
-## Status at 04:35 (overnight run)
-- Done and committed: G6 D4/D5/D4s pre-registered before runs; MAWI + PeerRush results; adversarial review addressed (benign-flow bootstrap, fixed-budget sweep, shipped-gate arm, doubled table, D4a/D4c placement, targeted pilot, packet-weighted recovery, gate check, hash-independence check); REPORT rewritten with failures and limits.
-- Running: D4 + age rent (`g6_jobs.py mawi4`), D4c fixed-budget comparators (`mawi5`), PeerRush D4s/D5 controls (reverse and forward workers, memory-gated). Streams write `results/g5/STATUS` when done.
-- Next: run `scripts/g6_mawi_report.py`, `scripts/g6_pr_report.py`, `scripts/g6_targeted_report.py`; add addendum-3 result and PeerRush control numbers to `docs/REPORT.md`; final commit; delete the cron heartbeat. No push.
+## Status at close-out (overnight run, about 06:10)
+- All planned G6 runs finished (MAWI D4/D5/D4s/D4a/D4c, load and fixed-budget sweeps, shipped-gate arm, doubled table, targeted pilot, D4 + rent arms; PeerRush D4 at 30 draws, D4s and D5 at 10). Reports regenerated: `docs/results_g6_mawi.md`, `results_g6_pr.md`, `results_g6_targeted.md`, `results_g6_hash_check.md`, `results_g6_gate_check.md`. `docs/REPORT.md` rewritten. Everything committed locally as akekulip; nothing pushed.
+- Headline: D4 passes its pre-registered rules as an emulator result on an oblivious attacker (MAWI recovery 0.76, PeerRush accuracy weak pass); it stops helping at high benign load and high attacker budget; D4s prediction failed (0.50 vs 0.76 on MAWI, not confirmed on PeerRush accuracy); D4 + rent (D4age) is not shown to help under its rule; D4d1/D4age not run on PeerRush.
+- Open decisions for Philip: push to GitHub (not done); approve the SDE checks (`docs/sde_validation_request.md`); whether to run D4d1/D4age on PeerRush and the adaptive/probing attacker arms; venue framing (measurement/negative-results core with one bounded positive result).
+- The hourly cron heartbeat was deleted at close-out.
 
 ## Results so far (G6, MAWI, emulator; all numbers from `docs/results_g6_mawi.md`)
 - H-D4-mech PASS: D4 recovery R = 0.76 [0.74, 0.77] at f = 10% (30 draws, prediction 0.78); replication day 0.78; f = 25%: 0.55 / 0.58; f = 50%: 0.17 (shrinks with load as predicted). Matched-refusal attacker cost 3.7x (lower bound 3.5x, pass at 2x).
