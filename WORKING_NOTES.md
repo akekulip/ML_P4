@@ -2,6 +2,15 @@
 
 Plan: `/home/philip/.claude/plans/write-this-down-and-snappy-spindle.md` (section "8-hour autonomous run"). Rules: commits only as akekulip, no trailers, no push, nothing on the switch.
 
+## Results so far (G6, MAWI, emulator; all numbers from `docs/results_g6_mawi.md`)
+- H-D4-mech PASS: D4 recovery R = 0.76 [0.74, 0.77] at f = 10% (30 draws, prediction 0.78); replication day 0.78; f = 25%: 0.55 / 0.58; f = 50%: 0.17 (shrinks with load as predicted). Matched-refusal attacker cost 3.7x (lower bound 3.5x, pass at 2x).
+- H-D5 equivalence PASS: E_D5 / E_D4 = 0.934 [0.906, 0.964], inside [0.9, 1.1].
+- **Failed prediction:** D4s (same-index 2-way associative) was predicted within +/-0.1 of D4; measured R = 0.50 vs 0.76 (difference +0.25). Independent hashes matter.
+- Check 2 (second-hash independence): ratios 0.99 to 1.02 on all three tuple sets, PASS.
+- Load sweep (MAWI primary, f = 10%): R = 0.75 (65,536 slots), 0.57 (32,768), 0.07 (16,384), -0.68 (8,192): recovery of the attack's excess reverses at high benign load; D4 still leaves fewer downgraded flows under attack in absolute terms at every size (benign gain grows: +520 to +1,457 flows). The claim is limited to low benign load.
+- Exploratory (not pre-registered): doubling the table with the same holders gives 642 downgraded flows under fill; D4 at 65,536 slots gives 216.
+- Pending: PeerRush accuracy arms (co-primary H-D4-acc at f = 25%), D4s/D5 on PeerRush (may not finish).
+
 ## Hurdles (symptom, cause, fix, file)
 - Report script took 25 min and timed out: flow bootstrap recomputed confusion sums per replicate -> precompute weighted totals once per run (`scripts/g5_peerrush_report.py`).
 - D1 looked worse under attack on PeerRush: not a bug; the wrap window incidentally evicts holders (d1w alone causes it). MAWI split shows D1 near-neutral there (`docs/results_g4a_d1parts.md`).

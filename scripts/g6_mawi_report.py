@@ -163,16 +163,38 @@ def main() -> None:
 
     # load sweep
     L += ["", "## Load sweep (primary day, f = 10%, clocks 0 to 9)", "",
-          "| table slots | undefended no-attack refusal share (load proxy) | draws | E_und (flows) | E_D4 | benign gain | R [CI] |", "|---|---|---|---|---|---|---|"]
+          "| table slots | undefended no-attack refusal share (load proxy) | draws | E_und (flows) | E_D4 | benign gain | R [CI] | "
+          "downgraded flows under fill: undefended, D4 |", "|---|---|---|---|---|---|---|---|"]
     for n_ in (65536, 32768, 16384, 8192):
         a = series("p", 10, "d4", range(10), n_)
         if not len(a):
             continue
         r, lo, hi = rec_ci(a)
+        cs = [g for g in range(10) if flows("p", g, 10, "", n_) is not None and flows("p", g, 10, "d4", n_) is not None]
+        fu = np.mean([flows("p", g, 10, "", n_) for g in cs])
+        fd = np.mean([flows("p", g, 10, "d4", n_) for g in cs])
         L.append(f"| {n_:,} | {a[:, 5].mean():.2%} | {len(a)} | {a[:, 0].mean():,.0f} | {a[:, 1].mean():,.0f} | {a[:, 2].mean():+,.0f} | "
-                 f"{r:+.2f} [{lo:+.2f}, {hi:+.2f}] |")
+                 f"{r:+.2f} [{lo:+.2f}, {hi:+.2f}] | {fu:,.0f}, {fd:,.0f} |")
+    # exploratory baseline: a table of twice the size with the same number of holders (not pre-registered in G6)
+    cs = [g for g in range(10) if None not in (flows("p", g, 10, ""), flows("p", g, 0, ""), flows("p", g, 10, "d4"), flows("p", g, 0, "d4"),
+                                              flows("p", g, 5, "", 131072), flows("p", g, 0, "", 131072))]
+    if cs:
+        m = lambda f_, arm, n_: float(np.mean([flows("p", g, f_, arm, n_) for g in cs]))
+        e_dbl = m(5, "", 131072) - m(0, "", 131072)
+        L += ["", "## Exploratory baseline: double the table (not pre-registered in G6; baseline 5 of the paper plan)", "",
+              (f"Primary day, oracle gate, clocks {cs[0]} to {cs[-1]} ({len(cs)} draws). The same number of holders (10% of 65,536 slots = 5% of 131,072) "
+               "attacks a table of twice the size; D4 keeps the capacity at 65,536 slots. Downgraded benign flows:"), "",
+              "| design | slots | no attack | under fill | excess |", "|---|---|---|---|---|",
+              f"| undefended | 65,536 | {m(0, '', 65536):,.0f} | {m(10, '', 65536):,.0f} | {m(10, '', 65536) - m(0, '', 65536):,.0f} |",
+              f"| D4 | 65,536 | {m(0, 'd4', 65536):,.0f} | {m(10, 'd4', 65536):,.0f} | {m(10, 'd4', 65536) - m(0, 'd4', 65536):,.0f} |",
+              f"| undefended | 131,072 | {m(0, '', 131072):,.0f} | {m(5, '', 131072):,.0f} | {e_dbl:,.0f} |", "",
+              (f"Excess under fill: D4 {m(10, 'd4', 65536) - m(0, 'd4', 65536):,.0f} flows, doubled table {e_dbl:,.0f} flows; total downgraded under fill: "
+               f"D4 {m(10, 'd4', 65536):,.0f}, doubled table {m(5, '', 131072):,.0f}. D4 costs a second hash and a register split at equal capacity; a "
+               "larger table costs SRAM.")]
     L += ["", "Reading: emulator results with an analytical holder abstraction. Deployability on Tofino-1 is unverified "
-          "(`docs/lit/overnight_p4_feasibility.md`). The load-sweep row where R crosses zero bounds the claim."]
+          "(`docs/lit/overnight_p4_feasibility.md`). The load-sweep row where R crosses zero bounds the claim: recovery of the attack's excess "
+          "holds while benign occupancy is low and reverses when the table is heavily loaded, even though D4 still lowers the absolute number "
+          "of downgraded flows under attack because of its benign gain."]
     (ROOT / "docs/results_g6_mawi.md").write_text("\n".join(L) + "\n")
     print("\n".join(L))
 
