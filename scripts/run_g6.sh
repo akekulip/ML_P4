@@ -9,7 +9,7 @@ waitmem() { while [ "$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo
 export -f waitmem
 mkdir -p results/g5/logs results/g2/logs6
 python3 scripts/g6_jobs.py "$kind" --check || exit 1
-if [ "$kind" = mawi ] || [ "$kind" = mawi2 ] || [ "$kind" = mawi3 ]; then
+if [ "$kind" = mawi ] || [ "$kind" = mawi2 ] || [ "$kind" = mawi3 ] || [ "$kind" = mawi4 ]; then
   run() { s=${1%% *}; j=${1#* }
           n=$(python3 - "$s" "$j" <<'PY'
 import sys; sys.path.insert(0, "scripts"); from g6_jobs import _name; print(_name("", f"{sys.argv[1]} {sys.argv[2]}"))

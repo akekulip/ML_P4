@@ -348,8 +348,8 @@ class NetBeaconSim:
         if self.two_way:
             if self.n_slots % 2:
                 raise ValueError("two_way needs an even n_slots")
-            if self.rent is not None:
-                raise ValueError("two_way is not combined with rent admission")
+            if self.rent is not None and self.wrap_window:
+                raise ValueError("two_way with rent admission needs the fixed clock (wrap_window=False)")
             if self.two_way_policy not in ("idle", "a_first", "unclaimed_first"):
                 raise ValueError(f"unknown two_way_policy {self.two_way_policy!r}")
             if self.hash_kind == "polyirr" and self.hash_seed == self.hash2_seed:
@@ -477,8 +477,22 @@ class NetBeaconSim:
                         hold_empty = self.wrap_window          # isolate is None here: zeroed registers look active
                         b1 = r_res[s] < 50 and lc1 < self.timeout_units and (claimed[s] or hold_empty)
                         b2 = r_res[s2] < 50 and lc2 < self.timeout_units and (claimed[s2] or hold_empty)
+                        if self.rent is not None:               # D4 + rent: a held candidate may still be evictable (age rule, applied when neither is takeable)
+                            ev1 = b1 and claimed[s] and now - r_t0[s] >= grace_u and (
+                                self.rent == "age" or (self.rent == "credit" and now > r_v[s])
+                                or (self.rent == "rate" and r_pk[s] * upsec < self.rent_rmin * (now - r_t0[s])))
+                            ev2 = b2 and claimed[s2] and now - r_t0[s2] >= grace_u and (
+                                self.rent == "age" or (self.rent == "credit" and now > r_v[s2])
+                                or (self.rent == "rate" and r_pk[s2] * upsec < self.rent_rmin * (now - r_t0[s2])))
+                        else:
+                            ev1 = ev2 = False
                         if b1 and b2:
-                            s = s2 if (claimed[s2] and not claimed[s]) else s          # refusal is reported as a collision if either was claimed
+                            if ev1 and ev2:
+                                s = s2 if now - r_t0[s2] > now - r_t0[s] else s               # evict the older holder
+                            elif ev2:
+                                s = s2
+                            elif not ev1:
+                                s = s2 if (claimed[s2] and not claimed[s]) else s          # refusal is reported as a collision if either was claimed
                         elif b1:
                             s = s2
                         elif not b2 and self.two_way_policy != "a_first":             # both takeable: prefer never claimed, then (idle policy) the longest idle

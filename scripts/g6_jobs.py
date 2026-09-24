@@ -62,6 +62,20 @@ def mawi3_jobs() -> list[str]:
     return [x for g in C3 for x in (base("p", g, "d4c"), atk("p", 10, g, "d4c"))] + [x for g in C10 for x in (base("r", g, "d4c"), atk("r", 10, g, "d4c"))]
 
 
+def mawi4_jobs() -> list[str]:
+    """D4 + D1 clock, without and with age rent (docs/preregistration.md, G6 addendum 3; exploratory)."""
+    atk = lambda f, g, arm, n="": f"g2b_mawi.py p:oracle:b0l:{f}@{g}+{arm}" + (f"~{n}" if n else "")
+    base = lambda g, arm, n="": f"g2_mawi.py p:oracle:crc@{g}+{arm}" + (f"~{n}" if n else "")
+    j: list[str] = []
+    for arm in ("d4d1", "d4age"):
+        for g in C10:
+            j += [base(g, arm), atk(10, g, arm)]
+        for n, f in ((32768, 20), (16384, 40), (8192, 80)):
+            for g in C10:
+                j += [base(g, arm, n), atk(f, g, arm, n)]
+    return j
+
+
 def pr_jobs() -> list[str]:
     j = [f"25:und@{g}" for g in C3 if g >= 10 and g not in (12, 18, 24)]          # extend undefended f = 25% to 30 draws
     j += [f"25:d4@{g}" for g in C3] + [f"0:d4@{g}" for g in C3] + [f"10:d4@{g}" for g in C3]
@@ -116,7 +130,7 @@ def _all_mawi(jobs):
 
 if __name__ == "__main__":
     kind = sys.argv[1]
-    jobs = mawi_jobs() if kind == "mawi" else mawi2_jobs() if kind == "mawi2" else mawi3_jobs() if kind == "mawi3" else pr_jobs()
+    jobs = mawi_jobs() if kind == "mawi" else mawi2_jobs() if kind == "mawi2" else mawi3_jobs() if kind == "mawi3" else mawi4_jobs() if kind == "mawi4" else pr_jobs()
     if "--check" in sys.argv:
         bad = check(kind, jobs)
         print("\n".join(bad) if bad else f"pairing ok ({len(jobs)} jobs)")

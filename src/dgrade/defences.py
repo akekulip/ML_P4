@@ -20,7 +20,7 @@ D1_PARTS = {"d1w": {"wrap_window": False}, "d1t": {"takeover_refresh": True}, "d
 # hash keyed per draw (the runner sets hash2_seed); the emulator treats them alike, they differ only for targeted attackers.
 # D4s: the control in which table B uses table A's index (a 2-way set-associative table); the runners set the slots.
 D4 = {"two_way": True}
-DEFENCES = ("d4", "d5", "d4s", "d4a", "d4c", "d1", "d1w", "d1t", "d1i", "d3a", "d3c<R>", "d3r<R>")
+DEFENCES = ("d4", "d5", "d4s", "d4a", "d4c", "d4d1", "d4age", "d1", "d1w", "d1t", "d1i", "d3a", "d3c<R>", "d3r<R>")
 
 
 def defence_kwargs(name: str | None) -> dict:
@@ -31,6 +31,8 @@ def defence_kwargs(name: str | None) -> dict:
         return dict(D1)
     if name in ("d4", "d5", "d4s"):
         return dict(D4)
+    if name in ("d4d1", "d4age"):                # D4c placement on the D1 clock (D4age adds age-only rent eviction); exploratory, G6 addendum 3
+        return {**D4, **D1, "two_way_policy": "unclaimed_first", **({"rent": "age"} if name == "d4age" else {})}
     if name == "d4c":
         return {**D4, "two_way_policy": "unclaimed_first"}
     if name == "d4a":

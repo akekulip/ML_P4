@@ -87,8 +87,8 @@ def test_forced_slots_must_lie_in_their_own_table():
 def test_two_way_needs_even_capacity_and_no_rent():
     with pytest.raises(ValueError):
         NetBeaconSim(models=StubModels(), n_slots=7, two_way=True).run(flow(3, 1))
-    with pytest.raises(ValueError):
-        NetBeaconSim(models=StubModels(), n_slots=8, two_way=True, rent="credit", wrap_window=False).run(flow(3, 1))
+    with pytest.raises(ValueError):                    # rent is defined on the fixed clock only
+        NetBeaconSim(models=StubModels(), n_slots=8, two_way=True, rent="age", wrap_window=True).run(flow(3, 1))
 
 
 def test_hash_derived_candidates_work_without_forcing():
@@ -176,3 +176,25 @@ def test_unclaimed_first_policy_prefers_a_never_claimed_slot_over_an_idle_claime
     assert flow1_late("unclaimed_first") == OWNER        # the newcomer took never-claimed slot 5; flow 1 keeps slot 0
     assert flow1_late("idle") == OWNER                    # same choice for the idle policy
     assert flow1_late("a_first") == NEW_OWNER             # the newcomer took slot 0; flow 1 must claim its other candidate
+
+
+def _rent_run(rent, newcomer_t0):
+    h1, h2 = flow(60, 1, gap=100 * MS), flow(60, 2, gap=100 * MS)                    # two active holders, one per table, from t = 0 for 6 s
+    f3 = flow(2, 3, t0=newcomer_t0, gap=10 * MS)
+    cands = {1: (0, 4), 2: (0, 4), 3: (0, 4)}
+    pk = np.concatenate([h1, h2, f3]); pk = pk[np.argsort(pk["ts_ns"], kind="stable")]
+    a = np.array([cands[int(p)][0] for p in pk["src_port"]]); b = np.array([cands[int(p)][1] for p in pk["src_port"]])
+    h = (pk["src_port"].astype(np.uint32) + 1000).astype(np.uint32)
+    sim = NetBeaconSim(models=StubModels(), n_slots=S, clock_offset_ns=300 * (1 << 20), two_way=True, wrap_window=False,
+                       takeover_refresh=True, rent=rent, two_way_policy="unclaimed_first")
+    out = sim.run(pk, force_slot=a, force_hash=h, force_long=np.ones(len(pk), dtype=bool), force_slot2=b)
+    return first(pk, out["outcome"], 3)
+
+
+def test_d4_with_age_rent_evicts_an_old_holder_when_both_candidates_are_held():
+    assert _rent_run(None, 3000 * MS) == FALLBACK_COLLISION      # both held and active: refused
+    assert _rent_run("age", 3000 * MS) == NEW_OWNER               # holders are older than the 1 s grace: one is evicted
+
+
+def test_d4_with_age_rent_still_protects_a_young_holder():
+    assert _rent_run("age", 500 * MS) == FALLBACK_COLLISION       # holders are younger than the grace period
