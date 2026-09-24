@@ -82,7 +82,7 @@ Downgrading half of the benign long flows needs about 82 to 83% nominal holder l
 - G3 (evasion, H4) is blocked on the CICIoT2023 attack folders; the retrained NetBeacon is not written. The Oracle-V ceiling is not run.
 - D4d1 and D4age were not run on PeerRush, where D1's clock is harmful.
 - **Second accuracy workload attempted and killed (G7):** ISCXVPN2016 (local copy is VPN-only, 29 captures in 16 session groups) was retrained as a NetBeacon-style workload and failed its pre-registered gate: on held-out sessions the full-state path scores macro-F1 0.347 against 0.654 for the per-packet fallback (`docs/results_g7_gates.md`, `docs/results_g7_diagnosis.md`). The accuracy claim therefore still rests on PeerRush alone.
-- Evidence rests on three captures (two MAWI slices, one PeerRush). Flowrest's flow manager was not read and may already be multi-choice.
+- Evidence rests on three captures (two MAWI slices, one PeerRush).
 
 ## 6. What the evidence supports
 
