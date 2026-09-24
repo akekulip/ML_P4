@@ -6,6 +6,8 @@ This report covers the paper track in `src/dgrade/`. The earlier MVM-Lite class 
 
 ## 1. Question
 
+(This is track 2 of the repository; the class project is track 1, `mvm_lite/`. See the top-level `README.md`.)
+
 NetBeacon-style in-network classifiers give their accurate per-flow model only to flows that win a hash-indexed storage slot (65,536 direct-mapped slots). Flows that lose a slot are answered by a weaker per-packet model. NetBeacon's authors argue this fallback is harmless and do not measure it. We measure the accuracy cost, whether a sender that fills slots can force it on third-party flows, and whether a defence helps.
 
 ## 2. Method and limits of the evidence
@@ -33,7 +35,7 @@ NetBeacon-style in-network classifiers give their accurate per-flow model only t
 
 ### 3.3 Two-choice admission (D4, D5): the first defence that passes its rules, with a bounded range (G6)
 
-**Design.** The same total capacity is split into two half-size tables with independent hashes (table A the shipped CRC32, table B a second irreducible-polynomial CRC). A packet uses the slot where its flow is resident; a newcomer takes a takeable candidate and is refused only when both are held. D5 keys the second hash per draw. Multi-choice hashing is an established flow-table technique (HashFlow, HashPipe, cuckoo variants); the contribution here is its measured effect on classifier accuracy under slot holding. The literature check was shallow (`docs/lit/overnight_literature.md`).
+**Design.** The same total capacity is split into two half-size tables with independent hashes (table A the shipped CRC32, table B a second irreducible-polynomial CRC). A packet uses the slot where its flow is resident; a newcomer takes a takeable candidate and is refused only when both are held. D5 keys the second hash per draw. Multi-choice hashing is an established flow-table technique (HashFlow, HashPipe, cuckoo variants); the contribution here is its measured effect on classifier accuracy under slot holding. The literature check was shallow (`docs/lit/overnight_literature.md`). Flowrest's public full-version P4 (`third_party/Flowrest/P4/Full_version/unibs_flowrest.p4`, lines 223 to 233) computes one CRC32 flow id and one CRC16 register index and shows no second candidate slot, so it does not already implement D4, but it advertises low-collision flow management and belongs in related work with Heracles (NDSS 2026) and SketchFeature (NDSS 2025).
 
 **Pre-registered results (MAWI, oracle gate, f = 10% nominal load, `docs/results_g6_mawi.md`).**
 - Recovery of the attack's excess downgraded flows R = 0.76 (draw interval [0.74, 0.77]; benign-flow interval [0.75, 0.77]; 30 draws) against a model prediction of about 0.78; replication day 0.78 (10 draws). Weighted by packets instead of flows (large flows count in proportion to their traffic) R = 0.80 (interval [0.65, 0.89]). Collision-refusal share under fill falls from 1.70% to 0.08%. Benign gain (no attack) is reported separately: 572 to 51 downgraded flows.
@@ -81,6 +83,8 @@ Downgrading half of the benign long flows needs about 82 to 83% nominal holder l
 - Evidence rests on three captures (two MAWI slices, one PeerRush). Flowrest's flow manager was not read and may already be multi-choice.
 
 ## 6. What the evidence supports
+
+**Framing to use:** D4 is an SRAM-neutral mitigation against untargeted flow-state contention that improves the availability of the accurate classifier path, with only constant-factor protection once placement is targetable. It is not logic-neutral (a second hash, lookup logic and possibly stages), and it is not a robust defence against downgrade attacks.
 
 - **Supported (emulator, oblivious uniform-slot fill):** splitting a per-flow table into two independently hashed half-size tables reduced the excess benign flows downgraded by 0.76 at 10% nominal holder load (0.55 at 25%) on MAWI, and reduced the PeerRush macro-F1 excess (+0.0144 to +0.0022 at 25% load) with an interval over benign flows that includes zero for the mitigation. The benefit shrinks with benign load and attacker budget and reverses at high load; a same-index control recovers about half; a keyed second hash costs nothing on fills; a cheap placement rule (D4c) keeps the result.
 - **Not supported:** that D4 is deployable or capacity-neutral on Tofino, that hashing independence adds robustness, protection against hash-knowing, probing or adaptive attackers beyond a constant factor, generalisation beyond three captures, novelty of the mechanism, or any stealth beyond the two volumetric detectors named.
