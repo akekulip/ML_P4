@@ -5,6 +5,9 @@ new-flow rate at the smallest fill fraction whose excess reaches 50% of the beni
 Holders send 4 packets/s, 60-byte packets, and rotate before 2,048 packets (about 500 s), so the sustained new-flow rate is
 f * 65,536 / 500 per second. Detector thresholds are quantiles of the benign 1-second bins (bins 5 and later; warm-up excluded)
 of the PRIMARY day, frozen there and applied to both days; new flows per /24 is not evaluated (attacker source diversity is not modelled).
+Alarm rates: each 1 s bin carries the benign count plus the attacker's count (4 packets per holder per second; new flows Poisson at the
+steady-state rotation rate; the start-up transient of the first 5 s, when every holder starts, is shown separately) and is compared with the
+frozen threshold. f is nominal holders per slot; holders draw slots with replacement, so the share of distinct slots targeted is 1 - exp(-f).
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ PAT = re.compile(r"b_([pr])_oracle_b0l_(\d+)_at(\d+)\.npz")
 R = 65536 / 0.268435
 ROT_S, HOLD_PPS, PKT_B, SLICE = 500.0, 4.0, 60, 120
 QS = (50, 90, 99, 99.9)
+RAMP_S = 5.0
 
 
 def bins(day: str):
@@ -48,6 +52,14 @@ def main() -> None:
           f"{R:,.0f} flows/s."), "",
           "Benign quantiles (primary day): " + "; ".join(
               f"p{q:g}: {t[0]:,.0f} new flows/s, {t[1]:,.0f} packets/s, {t[2]:,.0f} Mb/s" for q, t in thr.items()), ""]
+    L += ["Benign-only alarm rate (fraction of 1-second bins above the frozen primary-day threshold; the primary day is about "
+          "1% at p99 by construction, the replication day is out of sample):", "",
+          "| day | new flows/s p99 | packets/s p99 | packets/s p99.9 | Mb/s p99 |", "|---|---|---|---|---|"]
+    for day, dn in DAYS.items():
+        _p, _i, nf_, pps_, mbps_ = data[day]
+        L.append(f"| {dn} | {np.mean(nf_ > thr[99][0]):.1%} | {np.mean(pps_ > thr[99][1]):.1%} | "
+                 f"{np.mean(pps_ > thr[99.9][1]):.1%} | {np.mean(mbps_ > thr[99][2]):.1%} |")
+    L.append("")
     for day, dn in DAYS.items():
         _pk, idx, nf, pps, mbps = data[day]
         n_long = int((idx.n_pkts > 50).sum())
@@ -64,17 +76,21 @@ def main() -> None:
                   - int(downgraded_flows(np.load(base)["outcome"], idx).sum()))
             by_f.setdefault(f, []).append(ex)
         L += [f"## {dn}: {n_long:,} benign long flows", "",
-              ("| f | draws | excess flows | share of long flows | attacker packets/s | Mb/s | sustained new flows/s | ρ* if this f | "
-              "packets/s vs benign p50 / p90 / p99 / p99.9 | new flows/s vs p99 | Mb/s vs p99 |"), "|---|---|---|---|---|---|---|---|---|---|---|"]
+              ("| f (nominal holders per slot) | draws | excess flows | share of long flows | distinct slots targeted | attacker packets/s | Mb/s | "
+               "sustained new flows/s | ρ* if this f | benign+attack bins above p99 / p99.9 packets/s | above p99 new flows/s "
+               "(steady state) | above p99 Mb/s | start-up bins (first 5 s) above p99 new flows/s |"),
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for f in sorted(by_f):
             e = np.array(by_f[f], float)
             hold = f / 100 * 65536
             a_pps, a_mbps, a_nf = hold * HOLD_PPS, hold * HOLD_PPS * PKT_B * 8 / 1e6, hold / ROT_S
-            tot = pps.mean() + a_pps
-            fires = " / ".join("fires" if tot > t[1] else "silent" for t in thr.values())
-            L.append(f"| {f}% | {len(e)} | {e.mean():,.0f} | {e.mean() / n_long:.1%} | {a_pps:,.0f} | {a_mbps:.0f} | {a_nf:.0f} | "
-                     f"{a_nf / R:.1e} | {fires} | {'fires' if nf.mean() + a_nf > thr[99][0] else 'silent'} | "
-                     f"{'fires' if mbps.mean() + a_mbps > thr[99][2] else 'silent'} |")
+            a_nf_bins = np.random.default_rng(7).poisson(a_nf, len(nf))           # steady-state new flows per 1 s bin
+            rate = lambda v, t: float(np.mean(v > t))
+            ramp_nf = hold / RAMP_S                                                # holders start uniformly over the ramp
+            L.append(f"| {f}% | {len(e)} | {e.mean():,.0f} | {e.mean() / n_long:.1%} | {1 - np.exp(-f / 100):.0%} | {a_pps:,.0f} | {a_mbps:.0f} | {a_nf:.0f} | "
+                     f"{a_nf / R:.1e} | {rate(pps + a_pps, thr[99][1]):.0%} / {rate(pps + a_pps, thr[99.9][1]):.0%} | "
+                     f"{rate(nf + a_nf_bins, thr[99][0]):.0%} | {rate(mbps + a_mbps, thr[99][2]):.0%} | "
+                     f"{'above' if ramp_nf > thr[99][0] else 'below'} ({ramp_nf:,.0f}/s vs {thr[99][0]:,.0f}/s) |")
         fs = sorted(by_f)
         share = [np.mean(by_f[f]) / n_long for f in fs]
         hit = next((i for i, s in enumerate(share) if s >= 0.5), None)

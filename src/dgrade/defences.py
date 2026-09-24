@@ -13,7 +13,10 @@ import re
 __all__ = ["DEFENCES", "defence_kwargs"]
 
 D1 = {"wrap_window": False, "takeover_refresh": True, "fix_ipd_wrap": True}
-DEFENCES = ("d1", "d3a", "d3c<R>", "d3r<R>")
+# Diagnostic components of D1, one change each (post-hoc, docs/preregistration.md change log): w = no wrap window,
+# t = takeover refreshes last_classified, i = packet-gap timestamp keeps bits [41:10].
+D1_PARTS = {"d1w": {"wrap_window": False}, "d1t": {"takeover_refresh": True}, "d1i": {"fix_ipd_wrap": True}}
+DEFENCES = ("d1", "d1w", "d1t", "d1i", "d3a", "d3c<R>", "d3r<R>")
 
 
 def defence_kwargs(name: str | None) -> dict:
@@ -22,6 +25,8 @@ def defence_kwargs(name: str | None) -> dict:
         return {}
     if name == "d1":
         return dict(D1)
+    if name in D1_PARTS:
+        return dict(D1_PARTS[name])
     if name == "d3a":
         return {**D1, "rent": "age"}
     m = re.fullmatch(r"d3([cr])(\d+)", name)

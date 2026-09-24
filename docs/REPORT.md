@@ -27,28 +27,25 @@ NetBeacon-style in-network classifiers give their accurate per-flow model only t
 - CRC is affine over GF(2), so an XOR salt gives identical collisions. Outcomes were identical to the unkeyed run in 30 of 30 draws.
 - A secret irreducible polynomial changes which flows collide, but leaves the fill attack's excess unchanged (keyed over unkeyed 1.00–1.02, both days, at 10% and 25% fill). Keyed hashing shows no consistent benign cost or advantage.
 
-**One free fix (D1, G4a).** Fixing the timestamp wrap removes 100% of empty-slot refusals and lowers benign downgraded packets by 0.20–0.34 points on both days. It costs nothing on PeerRush (macro-F1 change −0.0007). It recovers only about 1–4% of the fill attack's excess.
+**D1, the wrap fix: a benign gain that becomes a liability under attack (G4a, G5).** D1 bundles three changes: no wrap window, a timestamp refresh on takeover, and a packet-gap timestamp fix. With no attack it lowers benign downgraded packets by 0.20 to 0.34 points on both MAWI days and improves PeerRush macro-F1 by 0.0020 (draw interval [+0.0004, +0.0036]). On MAWI it recovered about 1 to 4% of the fill attack's excess. On PeerRush at 8,192 slots the same D1 makes the fill attack **worse**: the excess loss rises from +0.0062 to +0.0221 (4 clock starts, 10% fill), and the pre-registered recovery is negative (−0.88 at 10%, −0.60 at 25%). A split into the three changes attributes this to the no-wrap-window change alone (excess +0.0219). The likely mechanism is that the shipped 4.3 s wrap window incidentally evicts undetermined holders, so removing it lets holders keep their slots. The cost of D1 is therefore measured in the emulator only: hardware resource cost and switch equivalence are unverified (`docs/sde_validation_request.md`), and D1 is not described as free.
 
-**Rate-based rent admission fails its pre-registered test (D3, G4a).** Flow-weighted recovery is 0.11–0.18 on both days, below the bar. The structural reason is that the median benign long flow sends 2.7–3.7 packets/s, which is below the holder's 4 packets/s, so a rate threshold cannot separate them. Rent removes about 86% of newcomer refusals but displaces about as many established flows.
+**Rate-based rent admission fails its pre-registered test (D3, G4a).** Flow-weighted recovery is 0.11–0.18 on both days, below the bar. The structural reason is that the median benign long flow sends 2.7–3.7 packets/s, which is below the holder's 4 packets/s, so a rate threshold cannot separate them. Rent removes about 86% of newcomer refusals but displaces about as many established flows. On PeerRush (8,192 slots, 10 paired clock starts) D3 also fails: with no attack it costs 0.0100 to 0.0108 macro-F1 (draw interval upper bound 0.0117 to 0.0125, over the 0.01 limit), and under fill it mitigates only +0.0031 to +0.0038 of the +0.0065 excess, so pre-registered recovery is negative (−0.84 and −1.04 at 10%; −0.11 and −0.19 at 25%, intervals include zero for the flow bootstrap).
 
 **The value-term defence is killed before any attack run (G5-0).** Forcing flows that agreed with the fallback at every phase onto the fallback costs 0.0368 macro-F1 after phase 4 and 0.0128 after phase 8, against a 0.01 limit, identically at six clock starts. Agreement persists at only 71–76%.
 
-**Stealth (H3).** Downgrading half of benign long flows needs about 82–83% table fill (about 110 sustained new flows/s). New-flow-rate and byte-rate detectors set at the benign p99 stay silent at every fill. A packet-rate detector does fire (about 195 kpackets/s added to 112 kpackets/s benign at 83% fill). H3 therefore holds only against the two pre-registered volumetric detectors.
+**Detectability (H3, re-analysed with observed alarm rates).** Downgrading half of the benign long flows needs about 82 to 83% nominal holder load per slot (about 110 sustained new flows/s). Holders draw slots with replacement, so that load targets only about 56% distinct slots. Each one-second bin was compared with thresholds frozen at the primary day's benign quantiles:
+- A **new-flow-rate** detector at p99 stays at the benign baseline (about 2% of bins alarm on the primary day, 0% on the replication day) at every fill.
+- A **byte-rate** detector at p99 rises only modestly (2% to 7% on the primary day), but the threshold transfers badly: benign traffic alone alarms in 9.6% of replication-day bins, and the attack raises that to 10 to 17%.
+- A **packet-rate** detector at p99 alarms in 35% of bins at 10% nominal load and in essentially every bin from 25% on the primary day (85% at 25% and 100% above on the replication day), because holders add 26,000 to 236,000 packets/s to about 111,000 benign.
 
-**Labelled harm on PeerRush (G5 pilot, one draw per row, 8,192-slot table).** Loss is the macro-F1 of the isolated reference (0.8428) minus the macro-F1 of the contended benign packets.
+Packet rate is itself a volumetric signal, so the attack is not stealthy against volumetric detection in general. It evades the two pre-registered detectors that count new flows and bytes, at the thresholds and on the two capture days used. Per-/24 detection is not evaluated.
 
-| Fill | Attacker packets | Macro-F1 | Loss | Excess over no attack | Benign packets refused |
-|---|---|---|---|---|---|
-| 0% | 0 | 0.8380 | 0.0048 | 0 | 0.27% |
-| 10% | 11.96 M | 0.8324 | 0.0104 | +0.0056 | 1.50% |
-| 25% | 29.91 M | 0.8261 | 0.0167 | +0.0119 | 3.56% |
-| 50% | 59.81 M | 0.8073 | 0.0355 | +0.0308 | 5.99% |
-
-These are single pilot draws with no confidence intervals. The 30-draw pre-registered grid has not run.
+**Labelled harm on PeerRush (G5 grid, `docs/results_g5_peerrush.md`, 8,192-slot table).** Loss is the macro-F1 of the isolated reference minus the macro-F1 of the contended benign packets, paired by clock start. With no attack the table already loses 0.0058 (30 draws, interval [0.0051, 0.0067]). A 10% fill adds +0.0065 (30 paired draws, draw interval [+0.0039, +0.0090], flow-bootstrap interval [+0.0008, +0.0121]); a 25% fill adds +0.0179 (13 draws, [+0.0117, +0.0243] and [+0.0064, +0.0325]). The accuracy harm is resolved but small: under 2% of the isolated macro-F1 of 0.843 at 25% fill. Single pilot draws at 50% fill (+0.031) point the same way but are not part of the grid.
 
 ## 4. Not done
 
-- The pre-registered PeerRush grid (undefended 30 draws at 10%, defended arms) did not run. The launch was killed with exit 137, most likely by the out-of-memory killer, so only the four pilot files exist. The 90% fill pilot was also OOM-killed. `scripts/run_g5.sh` is the relaunch script and needs lower parallelism.
+- The PeerRush grid used 10 paired draws for the defended arms at 10% fill and 5 at 25%, so their intervals are wide; the D1 split into its three changes is a post-hoc diagnostic on 4 clock starts, with point values only. The 50% and 90% fills were not run in the grid (the 90% pilot was killed for memory).
+- The D1 result on PeerRush (worse under attack) contradicts the small MAWI recovery. The MAWI runs were not re-analysed with the wrap-window split, so the two datasets are not yet reconciled.
 - Targeted-displacement arms were paused by decision. H2 (steering versus uniform fill) has no decisive arm. Fill arms give about 1.03x, as predicted.
 - G3 (evasion, H4) is blocked on the CICIoT2023 attack folders. The retrained NetBeacon is not written.
 - The Oracle-V ceiling and a two-way associativity comparator are not run.
@@ -57,7 +54,7 @@ These are single pilot draws with no confidence intervals. The 30-draw pre-regis
 
 ## 5. Reading of the evidence
 
-The evidence supports a measurement and negative-results paper with three claims: (i) the downgrade is real, concentrated in a few large flows, and clock-dependent; (ii) natural fixes fail (a salt is a no-op, rate-based rent cannot discriminate) and one fix, the wrap fix, is free and correct; (iii) the attack is easy to hide from volumetric detectors and exposed only by a packet-rate signal. It does not currently support an "attack plus working defence" paper. The venue choice (measurement framing versus an attack-and-defence venue such as ACSAC) is open.
+The evidence supports a measurement and negative-results paper about how access to flow state changes classifier accuracy and why reasonable-looking admission policies fail. Its claims are: (i) the downgrade is real, concentrated in a few large flows, and clock-dependent, and a fill attack's accuracy harm is resolved but small on PeerRush (+0.0065 macro-F1 at 10% nominal load, +0.0179 at 25%); (ii) natural fixes fail: a salt is a no-op, a secret polynomial does not reduce fills, rate-based rent cannot separate holders from ordinary flows and costs benign accuracy, and removing the wrap window improves benign traffic but makes a fill attack worse because the wrap window incidentally evicts holders; (iii) the attack evades new-flow-rate and byte-rate detectors at the thresholds used and is exposed by a packet-rate signal. It does not establish realistic evasion, general stealth, a deployable defence, or novelty over the closest prior work, and the emulator-to-switch validation is owed. The venue choice (measurement framing versus an attack-and-defence venue such as ACSAC) is open.
 
 ## 6. Reproduce
 
