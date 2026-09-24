@@ -194,7 +194,7 @@ Agreed by the expert round table on 2026-09-23 and approved by Philip. The full 
 - **Generality:** argued through an emulator sweep over table size, hash layout, timeout and fallback type.
   The two hardware victims are validation points.
 - **Datasets:**
-  - the victims' own datasets (NetBeacon: PeerRush, MAWI, ISCXVPN; BoS: ISCXVPN2016, BoT-IoT, CICIoT2022, PeerRush);
+  - the victims' own datasets (NetBeacon's original tasks: PeerRush, FacetTraffic, DDoS+MAWI; ISCXVPN2016, BoT-IoT and CICIoT2022 were used by later work, BoS, to evaluate NetBeacon-style classification; correction 2026-09-24: earlier text listed ISCXVPN among NetBeacon's own datasets);
   - MAWI and CAIDA for concurrency (CAIDA needs an access request);
   - TON_IoT attack classes for T-evade, which needs pcaps that we do not yet have.
 - **Statistics:** 10 seeds, block bootstrap, Holm correction. Victim configurations are frozen from the
