@@ -36,7 +36,7 @@ NetBeacon-style in-network classifiers give their accurate per-flow model only t
 **Design.** The same total capacity is split into two half-size tables with independent hashes (table A the shipped CRC32, table B a second irreducible-polynomial CRC). A packet uses the slot where its flow is resident; a newcomer takes a takeable candidate and is refused only when both are held. D5 keys the second hash per draw. Multi-choice hashing is an established flow-table technique (HashFlow, HashPipe, cuckoo variants); the contribution here is its measured effect on classifier accuracy under slot holding. The literature check was shallow (`docs/lit/overnight_literature.md`).
 
 **Pre-registered results (MAWI, oracle gate, f = 10% nominal load, `docs/results_g6_mawi.md`).**
-- Recovery of the attack's excess downgraded flows R = 0.76 (draw interval [0.74, 0.77]; benign-flow interval [0.75, 0.77]; 30 draws) against a model prediction of about 0.78; replication day 0.78 (10 draws). Collision-refusal share under fill falls from 1.70% to 0.08%. Benign gain (no attack) is reported separately: 572 to 51 downgraded flows.
+- Recovery of the attack's excess downgraded flows R = 0.76 (draw interval [0.74, 0.77]; benign-flow interval [0.75, 0.77]; 30 draws) against a model prediction of about 0.78; replication day 0.78 (10 draws). Weighted by packets instead of flows (large flows count in proportion to their traffic) R = 0.80 (interval [0.65, 0.89]). Collision-refusal share under fill falls from 1.70% to 0.08%. Benign gain (no attack) is reported separately: 572 to 51 downgraded flows.
 - At 25% load R = 0.55 (primary) and 0.58 (replication); at 50% load R = 0.17. Matched-refusal attacker cost 3.7 times the holders (lower bound 3.5).
 - D5 is equivalent to D4 on fills: E_D5 / E_D4 = 0.934, 90% interval [0.906, 0.964], inside the pre-registered [0.9, 1.1].
 - M1 (no attack) passes on both days (downgraded-packet share falls by 1.5 and 3.0 points).
@@ -69,12 +69,12 @@ Downgrading half of the benign long flows needs about 82 to 83% nominal holder l
 - Reported intervals use a two-sided 97.5% level, the Holm bound for two comparisons, not for the four pre-registered hypotheses; sign-flip p-values are Monte Carlo and unadjusted.
 - After the headline results were seen the following were added as exploratory: benign-flow bootstrap on MAWI, the fixed-budget sweep, the shipped-gate arm, doubled-table and D4s baselines to full draws, D4a and D4c placements, and the targeted pilot (`docs/preregistration.md`, G6 addenda).
 - The collision-refusal decomposition by incumbent type, required by the G6 entry, could not be computed: saved outputs do not record who held the slot. Only outcome-code shares are reported.
-- The pre-registered check that the shipped flow-size gate admits the holder pattern was not run.
+- The pre-registered check that the shipped flow-size gate admits the holder pattern was run late, after the results: the shipped model scores the holder header pattern as long (100% of flows) and gives every holder packet the per-packet code the emulator assumes (`docs/results_g6_gate_check.md`); it covers one header pattern only.
 
 ## 5. Not done
 
 - No switch validation: the SDE software-model diff and compile-only stage-fit checks (D1, D2, D4) need approval (`docs/sde_validation_request.md`). The emulator's hash symmetry assumption is unverified against the chip.
-- No adaptive, probing or hash-searching attacker; no packet-weighted downgrade excess; targeted pilot on one day only.
+- No adaptive, probing or hash-searching attacker; targeted pilot on one day only.
 - G3 (evasion, H4) is blocked on the CICIoT2023 attack folders; the retrained NetBeacon is not written. The Oracle-V ceiling is not run.
 - Evidence rests on three captures (two MAWI slices, one PeerRush). Flowrest's flow manager was not read and may already be multi-choice.
 
@@ -90,4 +90,4 @@ Code is in `src/dgrade/` and `scripts/` (`run_g5.sh`, `run_g6.sh`, `g6_jobs.py` 
 
 ## Index of records
 
-`docs/paper_plan.md`, `docs/preregistration.md`, `docs/lit/`, `docs/results_g0.md`, `results_g1.md`, `results_g1b.md`, `results_g2_traffic.md`, `results_g2a.md`, `results_g2b_h3.md`, `results_g4a.md`, `results_g4a_diagnosis.md`, `results_g4a_d1parts.md`, `results_g4_peerrush.md`, `results_g5_gate.md`, `results_g5_peerrush.md`, `results_g6_mawi.md`, `results_g6_pr.md`, `results_g6_targeted.md`, `results_g6_hash_check.md`, `results_v2_agreement.md`, `sde_validation_request.md`.
+`docs/paper_plan.md`, `docs/preregistration.md`, `docs/lit/`, `docs/results_g0.md`, `results_g1.md`, `results_g1b.md`, `results_g2_traffic.md`, `results_g2a.md`, `results_g2b_h3.md`, `results_g4a.md`, `results_g4a_diagnosis.md`, `results_g4a_d1parts.md`, `results_g4_peerrush.md`, `results_g5_gate.md`, `results_g5_peerrush.md`, `results_g6_mawi.md`, `results_g6_pr.md`, `results_g6_targeted.md`, `results_g6_hash_check.md`, `results_g6_gate_check.md`, `results_v2_agreement.md`, `sde_validation_request.md`.

@@ -121,7 +121,7 @@ def main() -> None:
     for d, dn in DAYS.items():
         L += [f"## {dn}", "",
               ("| f | arm | draws | E_und (flows) | E_arm | benign gain | R [draw CI] | R [benign-flow CI] | R > 0.5 (sign-flip p, Monte Carlo, unadjusted) | "
-               "G4a-style | refusal share: und, arm (no attack) | refusal share: und, arm (fill) |"), "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+               "R packet-weighted [draw CI] | G4a-style | refusal share: und, arm (no attack) | refusal share: und, arm (fill) |"), "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for f in (10, 25, 50):
             for arm in ("d4", "d5", "d4s", "d4a", "d4c"):
                 a = series(d, f, arm, range(30))
@@ -130,10 +130,20 @@ def main() -> None:
                 r, lo, hi = rec_ci(a)
                 fc = flow_cluster_ci(d, f, arm, range(30)) if (d, f) in KEEP_FLOWS else None
                 fcs = f"[{fc[0]:+.2f}, {fc[1]:+.2f}]" if fc else "n/a"
+                pw = [(pshare(d, g, f, "") - pshare(d, g, 0, ""), pshare(d, g, f, arm) - pshare(d, g, 0, arm)) for g in range(30)
+                      if None not in (pshare(d, g, f, ""), pshare(d, g, 0, ""), pshare(d, g, f, arm), pshare(d, g, 0, arm))]
+                if len(pw) >= 3:
+                    pw = np.array(pw)
+                    rp = 1 - pw[:, 1].mean() / max(pw[:, 0].mean(), 1e-12)
+                    bi = np.random.default_rng(6).integers(0, len(pw), (2000, len(pw)))
+                    rb = 1 - pw[bi, 1].mean(1) / np.maximum(pw[bi, 0].mean(1), 1e-12)
+                    pws = f"{rp:+.2f} [{np.percentile(rb, (100 - LVL_HOLM) / 2):+.2f}, {np.percentile(rb, 100 - (100 - LVL_HOLM) / 2):+.2f}]"
+                else:
+                    pws = "n/a"
                 p = signflip_p(0.5 * a[:, 0] - a[:, 1])
                 g4 = 1 - a[:, 7].mean() / max(a[:, 0].mean(), 1e-9)      # defended attack against the undefended no-attack run
                 L.append(f"| {f}% | {arm} | {len(a)} | {a[:, 0].mean():,.0f} | {a[:, 1].mean():,.0f} | {a[:, 2].mean():+,.0f} | "
-                         f"{r:+.2f} [{lo:+.2f}, {hi:+.2f}] | {fcs} | {p:.4f} | {g4:+.2f} | {a[:, 5].mean():.2%}, {a[:, 6].mean():.2%} | "
+                         f"{r:+.2f} [{lo:+.2f}, {hi:+.2f}] | {fcs} | {p:.4f} | {pws} | {g4:+.2f} | {a[:, 5].mean():.2%}, {a[:, 6].mean():.2%} | "
                          f"{a[:, 3].mean():.2%}, {a[:, 4].mean():.2%} |")
         L.append("")
 
