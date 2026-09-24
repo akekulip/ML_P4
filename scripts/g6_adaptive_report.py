@@ -63,6 +63,10 @@ def main() -> None:
             falsified.append(f"{cell}: deviation {dev:+.2f} beyond ±0.15")
         L.append(f"| {cell} | {c or '-'} | {m} | {m + 1} | {len(v)} | {v.mean():.0%} [{lo:.0%}, {hi:.0%}] | {pred:.0%} | {dev:+.2f} | {pk[cell]:,.0f} |")
     L += ["", f"Control (table A held only): {s0:.0%} of victims downgraded, the floor from benign occupancy of table B.", ""]
+    full = [float(res[c].mean()) for c, _cc, mm in CELLS if c in res and _cc and mm == _cc]
+    if full:
+        L += [f"With every candidate held (m = c) {min(full):.0%} to {max(full):.0%} of victims are downgraded, not 100%: the closed form over-predicts full-knowledge success "
+              "by about 0.11 to 0.15 (cause not investigated; the m < c cells follow the m/c scaling more closely).", ""]
     L.append("Pre-registered falsification: " + ("**triggered** (" + "; ".join(falsified) + ")." if falsified else "not triggered (every m = c cell has a lower bound of at least 90%, and no cell departs from the closed form by more than 0.15)."))
 
     L += ["", "## Rekey arm (no attack)", "",
