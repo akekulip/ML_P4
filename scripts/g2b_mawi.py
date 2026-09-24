@@ -34,6 +34,8 @@ from dgrade.netbeacon_sim import (
 
 
 def run(job: str) -> None:
+    job, _, ns = job.partition("~")              # optional table size (load sweep), e.g. p:oracle:b0l:10@3+d4~32768; default 65,536
+    n_slots = int(ns) if ns else 65536
     left, _, g = job.partition("@")
     g, _, dfn = g.partition("+")                 # optional defence suffix, e.g. p:oracle:b0l:10@3+d3c16
     day, gate, mode, f = left.split(":")
@@ -49,15 +51,16 @@ def run(job: str) -> None:
     if two:
         if mode != "b0l":
             raise ValueError("D4/D5 are run against the B0-L fill only")
-        b_slot = (fh % 32768).astype(np.int64)
-        b_slot2 = 32768 + (b_slot if dfn == "d4s" else (hash_unique(z["uniq"], "polyirr", h2seed)[z["inv"]] % 32768).astype(np.int64))
+        half = n_slots // 2
+        b_slot = (fh % half).astype(np.int64)
+        b_slot2 = half + (b_slot if dfn == "d4s" else (hash_unique(z["uniq"], "polyirr", h2seed)[z["inv"]] % half).astype(np.int64))
     else:
-        b_slot, b_slot2 = (fh & 0xFFFF).astype(np.int64), None
+        b_slot, b_slot2 = (fh & (n_slots - 1)).astype(np.int64), None
     span = int(pk["ts_ns"].max()) + 1
     rng = np.random.default_rng(1000 * f + g)
-    atk = build_fill(f / 100, "k1" if mode == "k1" else "k0", 65536, span, rng, tables=2 if two else 1)
+    atk = build_fill(f / 100, "k1" if mode == "k1" else "k0", n_slots, span, rng, tables=2 if two else 1)
     if dfn == "d4s":
-        atk.slot2 = 32768 + atk.slot
+        atk.slot2 = n_slots // 2 + atk.slot
     m = merge_attack(pk, b_slot, fh, atk, b_slot2)
     n_b, n_a = len(pk), len(atk.pk)
     long_flag = z["long_flag"] if gate == "oracle" else None
@@ -66,7 +69,8 @@ def run(job: str) -> None:
     pc_all = np.concatenate([z["pkt_code"].astype(np.int64), np.ones(n_a, dtype=np.int64)])[m.order]
     fs_all = np.concatenate([fs_b, np.full(n_a, 100)])[m.order]
     models = CachedModels(load_tables(ART), pc_all, fs_all, None)
-    sim = NetBeaconSim(models=models, clock_offset_ns=g * (WRAP_NS // GRID), hash2_seed=h2seed, **defence_kwargs(dfn))
+    sim = NetBeaconSim(models=models, n_slots=n_slots, clock_offset_ns=g * (WRAP_NS // GRID), hash2_seed=h2seed,
+                       **defence_kwargs(dfn))
     out = sim.run(m.pk, force_slot=m.slot, force_hash=m.hash, force_long=m.force_long, force_slot2=m.slot2)
     oc = out["outcome"]
     pos = np.empty(len(m.order), dtype=np.int64)
@@ -74,9 +78,11 @@ def run(job: str) -> None:
     a_oc = oc[pos[n_b:]]                                   # attacker outcomes in attacker-packet order
     owned = np.bincount(atk.flow, weights=np.isin(a_oc, (OWNER, NEW_OWNER)).astype(float))
     npk = np.bincount(atk.flow).astype(float)
-    name = job.replace(":", "_").replace("@", "_at").replace("+", "_p_")
-    np.savez_compressed(OUT / f"b_{name}.npz", benign_outcome=oc[~m.is_attacker], atk_owned=owned, atk_packets=npk,
+    name = job.replace(":", "_").replace("@", "_at").replace("+", "_p_") + (f"_n{n_slots}" if ns else "")
+    tmp = OUT / f"b_{name}.tmp.npz"                        # atomic write
+    np.savez_compressed(tmp, benign_outcome=oc[~m.is_attacker], atk_owned=owned, atk_packets=npk,
                         atk_slot_first=atk.slot[np.unique(atk.flow, return_index=True)[1]], n_attacker_packets=n_a)
+    tmp.replace(OUT / f"b_{name}.npz")
     print(job, "done; attacker flows holding a slot for >=90% of their packets:", float(np.mean(owned >= 0.9 * npk)))
 
 

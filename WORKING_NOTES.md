@@ -8,6 +8,7 @@ Plan: `/home/philip/.claude/plans/write-this-down-and-snappy-spindle.md` (sectio
 - MAWI D1-parts report showed only the replication day: filter `"_p_" not in name` also matched the day letter -> regex on the file suffix (`scripts/g4a_d1parts_report.py`).
 - `test_dgrade_targeted` failed after adding `Attack.slot2`: `TargetedAttack(..., failed)` was positional -> keyword call (`src/dgrade/inject_targeted.py`).
 - Own new test wrong (flow 2 took table A slot, not B) -> test corrected (`tests/test_dgrade_twoway.py`); emulator behaviour was right.
+- `25:und@10` OOM-killed (exit 137) when 4 MAWI workers, one PeerRush f=25 job (8.5 GB) and another session's 7-9 GB job ran together -> cut MAWI workers to 2 (SIGUSR2 to xargs), stopped my PeerRush stream by PID, added a MemAvailable gate (12 GB PeerRush, 6 GB MAWI) to `scripts/run_g6.sh`; failed jobs are re-run because finished outputs are skipped. Runner writes made atomic (tmp then rename).
 - Code review: D4 holders were not paired with the one-table draw -> slots2 drawn last in `build_fill`; guard against identical hashes in both tables.
 
 # WORKING_NOTES — MVM-Lite (ML class project)

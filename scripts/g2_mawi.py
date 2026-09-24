@@ -77,6 +77,8 @@ def prep(day: str) -> None:
 
 
 def run(job: str) -> None:
+    job, _, ns = job.partition("~")              # optional table size, e.g. p:oracle:crc@3+d4~32768 (load sweep); default 65,536
+    n_slots = int(ns) if ns else 65536
     left, _, g = job.partition("@")
     g, _, dfn = g.partition("+")                 # optional defence suffix, e.g. p:oracle:crc@3+d3c16
     day, gate, kind, *seed = left.split(":")
@@ -89,11 +91,13 @@ def run(job: str) -> None:
     two = dfn in ("d4", "d5", "d4s")                    # D4/D5: two half-size tables (same total capacity), independent second hash
     h2seed = 7919 if dfn == "d4" else 900_000 + int(g)
     if two:
-        slot = (fh % 32768).astype(np.int64)
-        slot2 = 32768 + (slot if dfn == "d4s" else (hash_unique(z["uniq"], "polyirr", h2seed)[z["inv"]] % 32768).astype(np.int64))
+        half = n_slots // 2
+        slot = (fh % half).astype(np.int64)
+        slot2 = half + (slot if dfn == "d4s" else (hash_unique(z["uniq"], "polyirr", h2seed)[z["inv"]] % half).astype(np.int64))
     else:
-        slot, slot2 = (fh & 0xFFFF).astype(np.int64), None
-    sim = NetBeaconSim(models=models, clock_offset_ns=int(g) * (WRAP_NS // GRID), hash2_seed=h2seed, **defence_kwargs(dfn))
+        slot, slot2 = (fh & (n_slots - 1)).astype(np.int64), None
+    sim = NetBeaconSim(models=models, n_slots=n_slots, clock_offset_ns=int(g) * (WRAP_NS // GRID), hash2_seed=h2seed,
+                       **defence_kwargs(dfn))
     out = sim.run(pk, force_slot=slot, force_hash=fh, force_slot2=slot2)
     sec = (pk["ts_ns"] // 10**9).astype(np.int64)
     oc = out["outcome"]
@@ -102,8 +106,10 @@ def run(job: str) -> None:
                                   ("takeover", NEW_OWNER), ("owner", OWNER), ("memo", MEMO))}
     per_sec["long_pred"] = np.bincount(sec, weights=out["predicted_long"], minlength=120)
     per_sec["packets"] = np.bincount(sec, minlength=120).astype(float)
-    name = job.replace(":", "_").replace("@", "_at").replace("+", "_p_")
-    np.savez_compressed(OUT / f"a_{name}.npz", outcome=oc, **per_sec)
+    name = job.replace(":", "_").replace("@", "_at").replace("+", "_p_") + (f"_n{n_slots}" if ns else "")
+    tmp = OUT / f"a_{name}.tmp.npz"                        # atomic write
+    np.savez_compressed(tmp, outcome=oc, **per_sec)
+    tmp.replace(OUT / f"a_{name}.npz")
     print(job, "done", np.bincount(oc, minlength=7), f"predicted long {out['predicted_long'].mean():.3f}")
 
 

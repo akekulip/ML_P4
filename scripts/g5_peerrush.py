@@ -88,8 +88,9 @@ def run(job: str) -> None:
     out = sim.run(stream, force_slot=slot, force_hash=h, force_long=long_, force_slot2=slot2)
     OUT.mkdir(parents=True, exist_ok=True)
     name = job.replace(":", "_").replace("@", "_at")
-    np.savez_compressed(OUT / f"pr_{name}.npz", result=out["result"][~is_atk].astype(np.int16),
-                        outcome=out["outcome"][~is_atk], n_attacker_packets=n_a)
+    tmp = OUT / f"pr_{name}.tmp.npz"                       # atomic: a killed job never leaves a partial result file
+    np.savez_compressed(tmp, result=out["result"][~is_atk].astype(np.int16), outcome=out["outcome"][~is_atk], n_attacker_packets=n_a)
+    tmp.replace(OUT / f"pr_{name}.npz")
     print(job, "done; attacker packets", n_a)
 
 
