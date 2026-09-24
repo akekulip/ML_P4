@@ -36,3 +36,19 @@ Top 2 (novelty x testability x venue fit, both scored 100): **(1) self-downgrade
 **Also estimated, not compiled (lower confidence):** a controller-maintained stash (exact-match, hash-free, so immune to slot-index targeting; digest-flood risk unaddressed), compare-and-set claims in pass 2 (narrows but does not remove the recirculation race), depth-1 cuckoo relocation by recirculation (blocked today by a register-action-count limit on two feature registers), a per-prefix claim-rate meter, egress offload (post-decision logic only; NetBeacon's egress is empty and shares stage memory with ingress, from memory).
 
 **Recommended next compiles:** P3d after fixing the result-mismatch bug, and the stash design. P13 (fixes the alias, adds the lease, frees a stage, zero clock cost) is the candidate to take to the switch host with SDE 9.13.2 and the software-model diff — **needs Philip's approval; nothing has been run there.**
+
+## P13 bug fix, follow-up (2026-09-24): the fully-correct fix costs the saved stage back
+
+The known bug (a failed keyed-tag match still inherited the victim's stale verdict) is fixed in `p4/dgrade_d4c_p13/` (offline compile, local SDE 9.13.1 only; `p13fix_vs_p13.diff` against the original probe). **The fix costs the stage P13 had saved: 12 stages, critical path 11 (against the buggy P13's 11 stages, critical path 10) — the same stage count as D4c alone.** The root cause: gating admission itself on the keyed check (not just the returned verdict) needs the tag compare inside the same stateful ALU that decides ownership, which pushed the probe from stage 1 to stage 2 and every later table down by one.
+
+| | Buggy P13 | Fixed P13 | D4c (frozen, evaluated design) |
+|---|---|---|---|
+| Ingress stages | 11 | **12** | 12 |
+| Critical path | 10 | 11 | 11 |
+| Stateful ALUs | 16 | 14 | 14 |
+| SRAM blocks | 201 | 191 | 191 |
+| Hash bits | 414 | 384 | 330 |
+
+A cheaper, **not recommended**, 11-stage alternative exists (`p13gate_vs_p13.diff`) that only zeroes the stored result on a mismatch, without gating ownership on the keyed check: it still lets an alias refresh the victim's last-seen time (so an attacker could keep a stale slot alive indefinitely) and refuses an alias on an idle slot where a normal newcomer would be admitted. Not used, for the record only.
+
+**Consequence for the paper track:** P13's headline ("fits in 11 stages, one fewer than D4c") does not survive its own bug fix. The corrected P13 is a same-stage, higher-SRAM/hash-cost alternative to D4c that additionally closes the aliasing weakness and adds a lease — a real but smaller improvement than first reported. It remains a separate, post-hoc implementation study (`p4/dgrade_d4c_p13/README.md`), not evidence for D4c's pre-registered claims, and is not compiled or tested beyond this local offline check.

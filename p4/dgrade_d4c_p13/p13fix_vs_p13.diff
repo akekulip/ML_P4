@@ -1,0 +1,198 @@
+--- src_p13/switch.p4	2026-09-24 11:01:36.113974215 -0400
++++ src_p13fix_a/switch.p4	2026-09-24 18:23:39.059249510 -0400
+@@ -245,16 +245,11 @@
+     Hash<bit<16>>(HashAlgorithm_t.CUSTOM, poly_t) hash_e2;
+     action Hash_E1() { ig_md.ep1 = hash_e1.get({hdr.ipv4.src_addr, ig_md.src_port, hdr.ipv4.protocol}); }
+     action Hash_E2() { ig_md.ep2 = hash_e2.get({hdr.ipv4.dst_addr, ig_md.dst_port, hdr.ipv4.protocol}); }
+-    Register<bit<16>, bit<Way_Index_Size>>(Way_Table_Size) Register_ktag_A;
+-    Register<bit<16>, bit<Way_Index_Size>>(Way_Table_Size) Register_ktag_B;
+-    RegisterAction<bit<16>, bit<Way_Index_Size>, bit<8>>(Register_ktag_A) Read_ktag_A_ra = { void apply(inout bit<16> v, out bit<8> rv) { rv = 0; if (v == ig_md.tag) { rv = 1; } } };
+-    RegisterAction<bit<16>, bit<Way_Index_Size>, bit<8>>(Register_ktag_B) Read_ktag_B_ra = { void apply(inout bit<16> v, out bit<8> rv) { rv = 0; if (v == ig_md.tag) { rv = 1; } } };
+-    RegisterAction<bit<16>, bit<Way_Index_Size>, bit<8>>(Register_ktag_A) Write_ktag_A_ra = { void apply(inout bit<16> v) { v = ig_md.tag; } };
+-    RegisterAction<bit<16>, bit<Way_Index_Size>, bit<8>>(Register_ktag_B) Write_ktag_B_ra = { void apply(inout bit<16> v) { v = ig_md.tag; } };
+-    action Read_ktag_A() { ig_md.ok_a = Read_ktag_A_ra.execute(ig_md.flow_hash[Way_Index_Size-1:0]); }
+-    action Read_ktag_B() { ig_md.ok_b = Read_ktag_B_ra.execute(ig_md.flow_hash2[Way_Index_Size-1:0]); }
+-    action Write_ktag_A() { Write_ktag_A_ra.execute(ig_md.flow_hash[Way_Index_Size-1:0]); }
+-    action Write_ktag_B() { Write_ktag_B_ra.execute(ig_md.flow_hash2[Way_Index_Size-1:0]); }
++    // P13-fix: the keyed tag is no longer a separate register compared in its own
++    // SALU. It is folded into the identity word the Probe SALU already compares
++    // (id_key = flow_hash[31:16] ++ tag), so "own" == weak hash AND keyed tag
++    // match, in ONE comparator. A keyed mismatch therefore IS "not own": no
++    // Own_* action, no inherited verdict, no last-seen refresh, no feature update.
+     action Hash_A() { ig_md.flow_hash  = my_symmetric_hash.get({hdr.ipv4.src_addr,hdr.ipv4.dst_addr,ig_md.src_port,ig_md.dst_port,hdr.ipv4.protocol}); }
+     action Hash_B() { ig_md.flow_hash2 = hash_b.get({hdr.ipv4.src_addr,hdr.ipv4.dst_addr,ig_md.src_port,ig_md.dst_port,hdr.ipv4.protocol}); }
+ 
+@@ -267,33 +262,33 @@
+     // ... because the predicate is output in another control flow").
+     RegisterAction<id_pair_t, bit<Way_Index_Size>, bit<8>>(Register_id_A) Probe_id_A = {
+         void apply(inout id_pair_t v, out bit<8> rv) {
+-            // cmplo = own (tag match), cmphi = recent (idle < timeout); written
++            // cmplo = own (weak-hash high half AND keyed tag match), cmphi = recent (idle < timeout); written
+             // inline because bf-p4c rejects a bool local holding the subtraction.
+-            if (v.hi == ig_md.flow_hash) {
++            if (v.hi == ig_md.id_key) {
+                 v.lo = ig_md.now_timestamp;
+             }
+-            rv = this.predicate(v.hi == ig_md.flow_hash,
++            rv = this.predicate(v.hi == ig_md.id_key,
+                                 ig_md.now_timestamp - v.lo < timeout_thres);
+         }
+     };
+     RegisterAction<id_pair_t, bit<Way_Index_Size>, bit<8>>(Register_id_B) Probe_id_B = {
+         void apply(inout id_pair_t v, out bit<8> rv) {
+-            // cmplo = own (tag match), cmphi = recent (idle < timeout); written
++            // cmplo = own (weak-hash high half AND keyed tag match), cmphi = recent (idle < timeout); written
+             // inline because bf-p4c rejects a bool local holding the subtraction.
+-            if (v.hi == ig_md.flow_hash) {
++            if (v.hi == ig_md.id_key) {
+                 v.lo = ig_md.now_timestamp;
+             }
+-            rv = this.predicate(v.hi == ig_md.flow_hash,
++            rv = this.predicate(v.hi == ig_md.id_key,
+                                 ig_md.now_timestamp - v.lo < timeout_thres);
+         }
+     };
+     // Recirculated pass: write the tag only. last-seen is NOT refreshed at a
+     // takeover, exactly like NetBeacon (switch.p4:607,626 in the original).
+     RegisterAction<id_pair_t, bit<Way_Index_Size>, bit<8>>(Register_id_A) Claim_id_A = {
+-        void apply(inout id_pair_t v) { v.hi = ig_md.flow_hash; }
++        void apply(inout id_pair_t v) { v.hi = ig_md.id_key; }
+     };
+     RegisterAction<id_pair_t, bit<Way_Index_Size>, bit<8>>(Register_id_B) Claim_id_B = {
+-        void apply(inout id_pair_t v) { v.hi = ig_md.flow_hash; }
++        void apply(inout id_pair_t v) { v.hi = ig_md.id_key; }
+     };
+ 
+     Register<bit<16>, bit<Way_Index_Size>>(Way_Table_Size) Register_result_A;
+@@ -452,48 +447,48 @@
+         const default_action = noaction;
+     }
+ 
+-    @pragma stage 3 
++    @pragma stage 4 
+     table Update_total_bytes_table{actions={Update_total_bytes;} default_action=Update_total_bytes;}
+-    @pragma stage 3 
++    @pragma stage 4 
+     table Init_total_bytes_table{actions={Init_total_bytes;} default_action=Init_total_bytes;}
+     
+-    @pragma stage 3
++    @pragma stage 4
+     table Update_total_pkts_table{actions={Update_total_pkts;} default_action=Update_total_pkts;}
+-    @pragma stage 3
++    @pragma stage 4
+     table Init_total_pkts_table{actions={Init_total_pkts;}default_action=Init_total_pkts;}
+ 
+-    @pragma stage 3
++    @pragma stage 4
+     table Update_pkt_length_power_sum_table{actions={Update_pkt_length_power_sum;} default_action=Update_pkt_length_power_sum;}
+-    @pragma stage 3 
++    @pragma stage 4 
+     table Init_pkt_length_power_sum_table{actions={Init_pkt_length_power_sum;}default_action=Init_pkt_length_power_sum;}
+ 
+-    @pragma stage 4
++    @pragma stage 5
+     table Init_max_pkt_length_table{actions={Init_max_pkt_length;} default_action=Init_max_pkt_length;}
+-    @pragma stage 4
++    @pragma stage 5
+     table Update_max_pkt_length_table{actions={Update_max_pkt_length;}default_action=Update_max_pkt_length;}
+     
+-    @pragma stage 4
++    @pragma stage 5
+     table Init_min_pkt_length_table{actions={Init_min_pkt_length;} default_action=Init_min_pkt_length;}
+-    @pragma stage 4
++    @pragma stage 5
+     table Update_min_pkt_length_table{actions={Update_min_pkt_length;}default_action=Update_min_pkt_length;}
+ 
+-    @pragma stage 6
++    @pragma stage 7
+     table pkt_bin1{key= {hdr.ipv4.total_len:ternary;} actions={Update_bin1; Read_bin1; noaction;} size = 2; const default_action = noaction; }
+-    @pragma stage 6
++    @pragma stage 7
+     table Init_bin1_table{key= {hdr.ipv4.total_len:ternary;} actions={Init0_bin1; Init1_bin1; noaction;} size = 2; const default_action=noaction;}
+-    @pragma stage 6
++    @pragma stage 7
+     table pkt_bin2{key= {hdr.ipv4.total_len:ternary;} actions={Update_bin2; Read_bin2; noaction;} size = 2; const default_action = noaction; }
+-    @pragma stage 6
++    @pragma stage 7
+     table Init_bin2_table{key= {hdr.ipv4.total_len:ternary;} actions={Init0_bin2; Init1_bin2; noaction;} size = 2; const default_action=noaction;}
+ 
+-    @pragma stage 4
++    @pragma stage 5
+     table Init_last_pkt_timestamp_table{ actions={Init_last_pkt_timestamp;} default_action=Init_last_pkt_timestamp;}
+-    @pragma stage 4
++    @pragma stage 5
+     table Update_last_pkt_timestamp_table{actions={Update_last_pkt_timestamp;} default_action=Update_last_pkt_timestamp;}
+ 
+-    @pragma stage 6
++    @pragma stage 7
+     table Init_min_ipd_table{actions={Init_min_ipd;} default_action=Init_min_ipd;}
+-    @pragma stage 6
++    @pragma stage 7
+     table Update_min_ipd_table{actions={Update_min_ipd;} default_action=Update_min_ipd;}
+ 
+     action SetFlowSize(bit<8> result){
+@@ -662,17 +657,17 @@
+         Pkt_Tree.apply();
+         ig_tm_md.ucast_egress_port = egress_port;
+ 
++        // Keyed additive identity (ADD, not XOR: survives the linear XOR-fold alias).
++        ig_md.tag = ig_md.ep1 + ig_md.ep2;
++        ig_md.id_key = ig_md.flow_hash[31:16] ++ ig_md.tag;
++
+         if(ig_intr_md.ingress_port == recirculate_port){ // recirculated pass: claim / result write in the way chosen in pass 1
+             if (hdr.ethernet.dst_addr[0:0] == 1) {
+-                ig_md.tag = ig_md.ep1 + ig_md.ep2;
+                 Claim_B();
+                 Write_result_B();
+-                Write_ktag_B();
+             } else {
+-                ig_md.tag = ig_md.ep1 + ig_md.ep2;
+                 Claim_A();
+                 Write_result_A();
+-                Write_ktag_A();
+             }
+             ig_md.tree1_confidence = hdr.ipv4.diffserv;
+             ig_md.total_pkts = hdr.ipv4.identification;
+@@ -683,9 +678,9 @@
+             if(!Flow_result.apply().hit){
+                 Probe_A();
+                 Probe_B();
+-                ig_md.tag = ig_md.ep1 + ig_md.ep2;
+-                Read_ktag_A();
+-                Read_ktag_B();
++                // A keyed-tag mismatch returns P_RECENT / P_IDLE (never P_OWN*), so the
++                // alias falls to the newcomer path: result = 0, and the victim's slot is
++                // seen as HELD (if recent, unresolved, lease live), so it cannot be taken.
+                 // ---- D4c placement (emulator two_way_policy="unclaimed_first") ----
+                 if (ig_md.st_a == P_OWN || ig_md.st_a == P_OWN_RECENT) {
+                     Own_A();
+@@ -709,7 +704,7 @@
+                 // Update_* accesses of each feature register as mutually exclusive (two
+                 // separate ifs on ig_md.act cost two extra stages: critical path 13).
+                 if (ig_md.act == ACT_OWN) {
+-                if(ig_md.result<50 && ((ig_md.way == 0 && ig_md.ok_a == 1) || (ig_md.way == 1 && ig_md.ok_b == 1))){
++                if(ig_md.result<50){
+                     pkt_bin1.apply();
+                     pkt_bin2.apply();
+                     Update_total_pkts_table.apply();
+--- src_p13/headers.p4	2026-09-24 11:01:36.113974215 -0400
++++ src_p13fix_a/headers.p4	2026-09-24 18:23:39.043249418 -0400
+@@ -193,7 +193,7 @@
+     // Add more headers here.
+ }
+ 
+-// D4c pair register cell: lo = last-seen time, hi = 32-bit flow tag.
++// D4c pair register cell: lo = last-seen time, hi = identity (P13-fix: flow_hash[31:16] ++ keyed tag).
+ #define EXPIRED 16w0x8000
+ #define LEASE_SH 16w0x0A00
+ struct id_pair_t {
+@@ -218,8 +218,7 @@
+     bit<16> ep1;
+     bit<16> ep2;
+     bit<16> tag;
+-    bit<8> ok_a;
+-    bit<8> ok_b;
++    bit<32> id_key;              // P13-fix: stored identity = flow_hash[31:16] ++ keyed tag
+     bit<8> pkt_conf;
+     bit<32> flow_hash2;          // second, independently keyed hash (table B index only)
+     bit<Register_Index_Size> slot; // chosen slot for the shared feature registers = way ++ idx

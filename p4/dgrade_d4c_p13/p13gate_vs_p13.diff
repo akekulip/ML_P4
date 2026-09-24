@@ -1,0 +1,13 @@
+--- src_p13/switch.p4	2026-09-24 11:01:36.113974215 -0400
++++ src_p13gate/switch.p4	2026-09-24 18:25:13.599785702 -0400
+@@ -709,7 +709,9 @@
+                 // Update_* accesses of each feature register as mutually exclusive (two
+                 // separate ifs on ig_md.act cost two extra stages: critical path 13).
+                 if (ig_md.act == ACT_OWN) {
+-                if(ig_md.result<50 && ((ig_md.way == 0 && ig_md.ok_a == 1) || (ig_md.way == 1 && ig_md.ok_b == 1))){
++                if ((ig_md.way == 0 && ig_md.ok_a == 0) || (ig_md.way == 1 && ig_md.ok_b == 0)) {
++                    ig_md.result = 0;   // keyed-tag mismatch: do not inherit the stored verdict
++                } else if(ig_md.result<50){
+                     pkt_bin1.apply();
+                     pkt_bin2.apply();
+                     Update_total_pkts_table.apply();
