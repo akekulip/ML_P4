@@ -88,16 +88,23 @@ def run(job: str) -> None:
     models = CachedModels(load_tables(ART), z["pkt_code"].astype(np.int64), z["flow_score"].astype(np.int64),
                           z["long_flag"] if gate == "oracle" else None)
     fh = hash_unique(z["uniq"], kind, hseed)[z["inv"]]
-    two = dfn in ("d4", "d5", "d4s", "d4a", "d4c", "d4d1", "d4age")                    # D4/D5: two half-size tables (same total capacity), independent second hash
+    rekey = float(dfn[3:]) if dfn.startswith("d5r") else None                        # G6 addendum 4: D5 with the second hash redrawn every `rekey` seconds
+    dfn_base = "d5" if rekey else dfn
+    two = dfn_base in ("d4", "d5", "d4s", "d4a", "d4c", "d4d1", "d4age")               # D4/D5: two half-size tables (same total capacity), independent second hash
     h2seed = 7919 if dfn == "d4" else 900_000 + int(g)
     if two:
         half = n_slots // 2
         slot = (fh % half).astype(np.int64)
         slot2 = half + (slot if dfn == "d4s" else (hash_unique(z["uniq"], "polyirr", h2seed)[z["inv"]] % half).astype(np.int64))
+        if rekey:                                   # flows resident in table B lose their state at each rotation: their slot moves with the epoch
+            epoch = ((pk["ts_ns"] - pk["ts_ns"].min()) // int(rekey * 10**9)).astype(np.int64)
+            for e in range(1, int(epoch.max()) + 1):
+                he = (hash_unique(z["uniq"], "polyirr", 900_000 + 1000 * e + int(g))[z["inv"]] % half).astype(np.int64)
+                slot2 = np.where(epoch == e, half + he, slot2)
     else:
         slot, slot2 = (fh & (n_slots - 1)).astype(np.int64), None
     sim = NetBeaconSim(models=models, n_slots=n_slots, clock_offset_ns=int(g) * (WRAP_NS // GRID), hash2_seed=h2seed,
-                       **defence_kwargs(dfn))
+                       **defence_kwargs(dfn_base))
     out = sim.run(pk, force_slot=slot, force_hash=fh, force_slot2=slot2)
     sec = (pk["ts_ns"] // 10**9).astype(np.int64)
     oc = out["outcome"]
