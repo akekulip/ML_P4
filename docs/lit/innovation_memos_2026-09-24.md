@@ -14,3 +14,25 @@ Top 2 (novelty x testability x venue fit, both scored 100): **(1) self-downgrade
 ## Open items
 - p4-dataplane-engineer's hardware-native memo (new Tofino primitives) is still running; power-systems-expert (OT framing, second-workload candidates) and literature-reviewer (cross-field techniques: cache admission, Rowhammer defences, heavy-hitter sketches, cuckoo filters, SYN cookies) hit the rate limit and are queued for after 2:10pm.
 - None of this is pre-registered or run. Before touching anything: finish the G8 fidelity gate in progress (the plan's current step), then bring these ideas to Philip for a decision on which one or two to pre-register next. The self-evident cheap, mostly-free checks (research-scientist's Findings A and B; the phase-k verdict cost table for idea A/1) can be computed from existing saved outputs without new emulation and are good first moves once G8 closes.
+
+## P4-dataplane-engineer memo: hardware-native mechanisms, offline-compiled (13 probes, local SDE 9.13.1)
+
+**All compile evidence, nothing run on the switch.** Four changes compile and, combined (probe P13), **fit in 11 of 12 ingress stages — one fewer than D4c uses today.**
+
+| probe | change vs D4c | fits? | stages | critical path | extra SALUs | extra SRAM | extra hash-dist |
+|---|---|---|---|---|---|---|---|
+| P1 | Pkt_Tree moved earlier (parallel with Flow_Tree, not gated on it) | yes | 12 | 10 (from 11) | 0 | 0 | 0 |
+| P3d | P1 + a keyed identity tag: `tag = CRC_k(src,sport,proto) + CRC_k(dst,dport,proto)` (an ADD, not XOR, so it survives the linear alias structure) | yes | 12 | 10 | +2 | +10 | +4 |
+| P5 | P-b + D1's unwrapped clock | yes | 12 | 11 | 0 | 0 | 0 |
+| P12 | P1 + a lease packed into the existing 16-bit result register + unwrapped clock | yes | **11** | 10 | 0 | 0 | 0 |
+| **P13** | P3d + lease + unwrapped clock (everything combined) | **yes** | **11** | 10 | +2 | +10 | +4 |
+
+**Two negative findings:** every Tofino-1 hash algorithm (IDENTITY, RANDOM, XOR8/16/32, CRC8-64, CUSTOM) is linear over GF(2) (`tofino1_base.p4:67-78`), so no hash choice alone breaks the XOR-fold alias structure — only an ADD, MIN/MAX, a table or a stateful ALU does. An atomic single-pass D4c claim ("prefer never-claimed B") does not fit one stateful ALU; recirculation is intrinsic to the design (only D4a, already failed on M1, could be atomic).
+
+**Why P3d matters:** it is a compiled fix for the identity-aliasing weakness (see `docs/lit/symmetric_hash_aliasing.md` if written, else the XOR-fold item in `docs/results_d4c_compile.md`). An alias now needs `CRC_k(forged) = CRC_k(true)` under a *secret* key, about 2^-16 per blind attempt at the compiled 16-bit tag width (32 bits did not fit: it needs 7 hash-distribution units where stage 0 has 6). **Known bug in the probe, not yet fixed:** on a tag mismatch the slot's stored result is not forced to 0, so a failed alias still inherits the victim's stale verdict; this must be fixed before the mechanism is used.
+
+**Why P12/P5 matter:** the unwrapped (D1) clock costs literally 0 resources at compile time, settling "D1's hardware cost is unverified" for the compiler (behaviour on the model is still owed). The lease reuses the existing result register (no new state) and gives a hardware path for the D4age family — but its semantics differ from the emulated D4age (expiry runs from the last result *write*, not from the claim time), so it needs its own emulator arm, not a relabelling of the existing one.
+
+**Also estimated, not compiled (lower confidence):** a controller-maintained stash (exact-match, hash-free, so immune to slot-index targeting; digest-flood risk unaddressed), compare-and-set claims in pass 2 (narrows but does not remove the recirculation race), depth-1 cuckoo relocation by recirculation (blocked today by a register-action-count limit on two feature registers), a per-prefix claim-rate meter, egress offload (post-decision logic only; NetBeacon's egress is empty and shares stage memory with ingress, from memory).
+
+**Recommended next compiles:** P3d after fixing the result-mismatch bug, and the stash design. P13 (fixes the alias, adds the lease, frees a stage, zero clock cost) is the candidate to take to the switch host with SDE 9.13.2 and the software-model diff — **needs Philip's approval; nothing has been run there.**
