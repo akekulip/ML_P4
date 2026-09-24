@@ -2,6 +2,11 @@
 
 Plan: `/home/philip/.claude/plans/write-this-down-and-snappy-spindle.md` (section "8-hour autonomous run"). Rules: commits only as akekulip, no trailers, no push, nothing on the switch.
 
+## Status at 04:35 (overnight run)
+- Done and committed: G6 D4/D5/D4s pre-registered before runs; MAWI + PeerRush results; adversarial review addressed (benign-flow bootstrap, fixed-budget sweep, shipped-gate arm, doubled table, D4a/D4c placement, targeted pilot, packet-weighted recovery, gate check, hash-independence check); REPORT rewritten with failures and limits.
+- Running: D4 + age rent (`g6_jobs.py mawi4`), D4c fixed-budget comparators (`mawi5`), PeerRush D4s/D5 controls (reverse and forward workers, memory-gated). Streams write `results/g5/STATUS` when done.
+- Next: run `scripts/g6_mawi_report.py`, `scripts/g6_pr_report.py`, `scripts/g6_targeted_report.py`; add addendum-3 result and PeerRush control numbers to `docs/REPORT.md`; final commit; delete the cron heartbeat. No push.
+
 ## Results so far (G6, MAWI, emulator; all numbers from `docs/results_g6_mawi.md`)
 - H-D4-mech PASS: D4 recovery R = 0.76 [0.74, 0.77] at f = 10% (30 draws, prediction 0.78); replication day 0.78; f = 25%: 0.55 / 0.58; f = 50%: 0.17 (shrinks with load as predicted). Matched-refusal attacker cost 3.7x (lower bound 3.5x, pass at 2x).
 - H-D5 equivalence PASS: E_D5 / E_D4 = 0.934 [0.906, 0.964], inside [0.9, 1.1].
@@ -9,7 +14,7 @@ Plan: `/home/philip/.claude/plans/write-this-down-and-snappy-spindle.md` (sectio
 - Check 2 (second-hash independence): ratios 0.99 to 1.02 on all three tuple sets, PASS.
 - Load sweep (MAWI primary, f = 10%): R = 0.75 (65,536 slots), 0.57 (32,768), 0.07 (16,384), -0.68 (8,192): recovery of the attack's excess reverses at high benign load; D4 still leaves fewer downgraded flows under attack in absolute terms at every size (benign gain grows: +520 to +1,457 flows). The claim is limited to low benign load.
 - Exploratory (not pre-registered): doubling the table with the same holders gives 642 downgraded flows under fill; D4 at 65,536 slots gives 216.
-- Pending: PeerRush accuracy arms (co-primary H-D4-acc at f = 25%), D4s/D5 on PeerRush (may not finish).
+- Pending (superseded, see below): PeerRush accuracy arms (co-primary H-D4-acc at f = 25%), D4s/D5 on PeerRush (may not finish).
 
 ## Hurdles (symptom, cause, fix, file)
 - Report script took 25 min and timed out: flow bootstrap recomputed confusion sums per replicate -> precompute weighted totals once per run (`scripts/g5_peerrush_report.py`).
