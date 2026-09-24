@@ -86,9 +86,15 @@ def run(job: str) -> None:
     models = CachedModels(load_tables(ART), z["pkt_code"].astype(np.int64), z["flow_score"].astype(np.int64),
                           z["long_flag"] if gate == "oracle" else None)
     fh = hash_unique(z["uniq"], kind, hseed)[z["inv"]]
-    slot = (fh & 0xFFFF).astype(np.int64)
-    sim = NetBeaconSim(models=models, clock_offset_ns=int(g) * (WRAP_NS // GRID), **defence_kwargs(dfn))
-    out = sim.run(pk, force_slot=slot, force_hash=fh)
+    two = dfn in ("d4", "d5", "d4s")                    # D4/D5: two half-size tables (same total capacity), independent second hash
+    h2seed = 7919 if dfn == "d4" else 900_000 + int(g)
+    if two:
+        slot = (fh % 32768).astype(np.int64)
+        slot2 = 32768 + (slot if dfn == "d4s" else (hash_unique(z["uniq"], "polyirr", h2seed)[z["inv"]] % 32768).astype(np.int64))
+    else:
+        slot, slot2 = (fh & 0xFFFF).astype(np.int64), None
+    sim = NetBeaconSim(models=models, clock_offset_ns=int(g) * (WRAP_NS // GRID), hash2_seed=h2seed, **defence_kwargs(dfn))
+    out = sim.run(pk, force_slot=slot, force_hash=fh, force_slot2=slot2)
     sec = (pk["ts_ns"] // 10**9).astype(np.int64)
     oc = out["outcome"]
     per_sec = {name: np.bincount(sec, weights=(oc == code), minlength=120)

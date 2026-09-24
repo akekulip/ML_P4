@@ -44,11 +44,21 @@ def run(job: str) -> None:
         raise ValueError(f"unknown mode {mode!r}")
     kind, hseed = ("polyirr", g) if mode == "k0" else ("crc", None)
     fh = hash_unique(z["uniq"], kind, hseed)[z["inv"]]
-    b_slot = (fh & 0xFFFF).astype(np.int64)
+    two = dfn in ("d4", "d5", "d4s")                    # D4/D5: two half-size tables (same total capacity), independent second hash
+    h2seed = 7919 if dfn == "d4" else 900_000 + g
+    if two:
+        if mode != "b0l":
+            raise ValueError("D4/D5 are run against the B0-L fill only")
+        b_slot = (fh % 32768).astype(np.int64)
+        b_slot2 = 32768 + (b_slot if dfn == "d4s" else (hash_unique(z["uniq"], "polyirr", h2seed)[z["inv"]] % 32768).astype(np.int64))
+    else:
+        b_slot, b_slot2 = (fh & 0xFFFF).astype(np.int64), None
     span = int(pk["ts_ns"].max()) + 1
     rng = np.random.default_rng(1000 * f + g)
-    atk = build_fill(f / 100, "k1" if mode == "k1" else "k0", 65536, span, rng)
-    m = merge_attack(pk, b_slot, fh, atk)
+    atk = build_fill(f / 100, "k1" if mode == "k1" else "k0", 65536, span, rng, tables=2 if two else 1)
+    if dfn == "d4s":
+        atk.slot2 = 32768 + atk.slot
+    m = merge_attack(pk, b_slot, fh, atk, b_slot2)
     n_b, n_a = len(pk), len(atk.pk)
     long_flag = z["long_flag"] if gate == "oracle" else None
     fs_b = np.where(long_flag, 100, 0) if long_flag is not None else z["flow_score"].astype(np.int64)
@@ -56,8 +66,8 @@ def run(job: str) -> None:
     pc_all = np.concatenate([z["pkt_code"].astype(np.int64), np.ones(n_a, dtype=np.int64)])[m.order]
     fs_all = np.concatenate([fs_b, np.full(n_a, 100)])[m.order]
     models = CachedModels(load_tables(ART), pc_all, fs_all, None)
-    sim = NetBeaconSim(models=models, clock_offset_ns=g * (WRAP_NS // GRID), **defence_kwargs(dfn))
-    out = sim.run(m.pk, force_slot=m.slot, force_hash=m.hash, force_long=m.force_long)
+    sim = NetBeaconSim(models=models, clock_offset_ns=g * (WRAP_NS // GRID), hash2_seed=h2seed, **defence_kwargs(dfn))
+    out = sim.run(m.pk, force_slot=m.slot, force_hash=m.hash, force_long=m.force_long, force_slot2=m.slot2)
     oc = out["outcome"]
     pos = np.empty(len(m.order), dtype=np.int64)
     pos[m.order] = np.arange(len(m.order))

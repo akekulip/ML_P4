@@ -88,7 +88,7 @@ def build_targeted(victims: list[Victim], mode: str, span_ns: int, rng: np.rando
             start.append(v.gap_start_ts + REACT_DELAY_NS)
     slots = np.array([victims[k].slot for k in keep], dtype=np.int64)
     a = _holders(np.array(start, dtype=np.int64), slots, span_ns, rng, interval_ns)
-    return TargetedAttack(a.pk, a.flow, a.slot, a.hash, failed)
+    return TargetedAttack(a.pk, a.flow, a.slot, a.hash, failed=failed)
 
 
 def random_holders(h: int, span_ns: int, rng: np.random.Generator, n_slots: int = 65536,

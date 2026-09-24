@@ -324,18 +324,33 @@ class NetBeaconSim:
     rent_grace_s: float = 1.0            # an incumbent younger than this is always protected
     rent_cap_s: float = 2.0              # credit cannot be banked more than this far ahead of now
     wrap_window: bool = True             # robustness switch: False uses an unwrapped clock (no 4.295 s eviction window)
+    two_way: bool = False                # D4: two half-size tables with independent hashes; a newcomer is refused only if both candidates are held
+    hash2_seed: int = 7919               # D4: draws the second table's hash (an irreducible polynomial)
     square: Callable[[int], int] = field(default=sqr)
 
     def run(self, pk: np.ndarray, isolate: np.ndarray | None = None, force_slot: np.ndarray | None = None,
-            force_hash: np.ndarray | None = None, force_long: np.ndarray | None = None) -> dict[str, np.ndarray]:
+            force_hash: np.ndarray | None = None, force_long: np.ndarray | None = None,
+            force_slot2: np.ndarray | None = None) -> dict[str, np.ndarray]:
         """Replay ``pk``. With ``isolate`` (a flow id per packet, e.g. from :func:`flow_ids`), every
         flow gets its own slot and a never-claimed slot is always claimable: the counterfactual
         "this flow had a slot", used as the full-model reference for H1.
 
         ``force_slot`` (int, -1 = use the hash), ``force_hash`` (32-bit identity used where a slot is forced) and
         ``force_long`` (bool) override the hash-derived slot, the flow identity and the flow-size gate for chosen
-        packets. They model injected flows analytically (an adversary given slot control); no hash search is done."""
+        packets. They model injected flows analytically (an adversary given slot control); no hash search is done.
+
+        ``two_way`` (D4) splits the ``n_slots`` registers into table A (slots below n_slots/2, indexed by the flow hash) and table B
+        (the rest, indexed by a second, independent hash). ``force_slot`` then addresses table A and ``force_slot2`` table B.
+        In this mode ``out["slot"]`` reports the table-A candidate, not the slot a flow actually used."""
         pk = np.asarray(pk)
+        two = self.two_way and isolate is None
+        if self.two_way:
+            if self.n_slots % 2:
+                raise ValueError("two_way needs an even n_slots")
+            if self.rent is not None:
+                raise ValueError("two_way is not combined with rent admission")
+            if self.hash_kind == "polyirr" and self.hash_seed == self.hash2_seed:
+                raise ValueError("two_way: table A and table B would use the same hash (one table of double size)")
         if np.any(np.diff(pk["ts_ns"]) < 0):
             raise ValueError("packets must be in timestamp order")
         n = len(pk)
@@ -347,9 +362,14 @@ class NetBeaconSim:
         salt = int(rng.integers(0, 2**32)) if self.keyed else None
         offset = int(rng.integers(0, 2**32)) if self.clock_offset_ns is None else int(self.clock_offset_ns)
         fully_forced = force_slot is not None and bool(np.all(np.asarray(force_slot) >= 0))
+        slot2 = None
         if isolate is None and fully_forced:
             fh = np.asarray(force_hash, dtype=np.uint32)
             slot, S = np.asarray(force_slot, dtype=np.int64), self.n_slots
+            if two:
+                if force_slot2 is None:
+                    raise ValueError("two_way with fully forced slots needs force_slot2")
+                slot2 = np.asarray(force_slot2, dtype=np.int64)
         elif isolate is None:
             if self.hash_kind != "crc":
                 fh = flow_hash(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"],
@@ -357,7 +377,13 @@ class NetBeaconSim:
             else:
                 fh = crc32_flow_hash(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"], salt)
             S = self.n_slots
-            slot = (fh & (S - 1)) if S & (S - 1) == 0 else fh % S
+            if two:
+                half = S // 2
+                fh2 = flow_hash(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"], "polyirr", self.hash2_seed)
+                slot = (fh % half).astype(np.int64)
+                slot2 = half + (fh2 % half).astype(np.int64)
+            else:
+                slot = (fh & (S - 1)) if S & (S - 1) == 0 else fh % S
         else:
             iso = np.asarray(isolate, dtype=np.int64)
             fh = (iso + 1).astype(np.uint32)
@@ -367,6 +393,12 @@ class NetBeaconSim:
             on = fs >= 0
             slot = np.where(on, fs, slot)
             fh = np.where(on, np.asarray(force_hash, dtype=np.uint32), fh)
+            if two:
+                if force_slot2 is None:
+                    raise ValueError("two_way with forced slots needs force_slot2")
+                slot2 = np.where(on, np.asarray(force_slot2, dtype=np.int64), slot2)
+        if two and (np.any(slot >= S // 2) or np.any(slot2 < S // 2) or np.any(slot2 >= S)):
+            raise ValueError("two_way: table A slots must lie below n_slots/2 and table B slots in [n_slots/2, n_slots)")
         pkt_code = self.models.pkt_codes(pk)
         long_ = self.models.flow_size(pk) > FLOW_SIZE_LONG_THRESHOLD
         if force_long is not None:
@@ -416,6 +448,7 @@ class NetBeaconSim:
             sp, dp, pr = pk["src_port"][sl].tolist(), pk["dst_port"][sl].tolist(), pk["proto"][sl].tolist()
             ln, ts = pk["total_len"][sl].tolist(), pk["ts_ns"][sl].tolist()
             fh_l, sl_l, lg_l = fh[sl].tolist(), slot[sl].tolist(), long_[sl].tolist()
+            sl2_l = slot2[sl].tolist() if two else None
             pc_l, rj_l = pkt_code[sl].tolist(), rejected[sl].tolist()
             nw_l, ip_l = now_a[sl].tolist(), ipd_a[sl].tolist()
             for j in range(end - base):
@@ -431,6 +464,23 @@ class NetBeaconSim:
                     outcome[i], vkind[i], memo_val[i] = MEMO, 1, memo_dir[d5]
                     continue
                 s, h, L, now = sl_l[j], fh_l[j], ln[j], nw_l[j]
+                if two and r_hash[s] != h:
+                    s2 = sl2_l[j]
+                    if r_hash[s2] == h:                               # the flow owns its table-B slot
+                        s = s2
+                    else:                                             # newcomer: take a takeable candidate (D4)
+                        lc1 = (now - r_lastc[s]) & _M32 if self.wrap_window else now - r_lastc[s]
+                        lc2 = (now - r_lastc[s2]) & _M32 if self.wrap_window else now - r_lastc[s2]
+                        hold_empty = self.wrap_window          # isolate is None here: zeroed registers look active
+                        b1 = r_res[s] < 50 and lc1 < self.timeout_units and (claimed[s] or hold_empty)
+                        b2 = r_res[s2] < 50 and lc2 < self.timeout_units and (claimed[s2] or hold_empty)
+                        if b1 and b2:
+                            s = s2 if (claimed[s2] and not claimed[s]) else s          # refusal is reported as a collision if either was claimed
+                        elif b1:
+                            s = s2
+                        elif not b2:                                                  # both takeable: prefer never claimed, then the longest idle
+                            if (claimed[s] and not claimed[s2]) or (claimed[s] == claimed[s2] and lc2 > lc1):
+                                s = s2
                 if h != r_hash[s]:                                    # new flow at this slot (sw:606)
                     lastc = (now - r_lastc[s]) & _M32 if self.wrap_window else now - r_lastc[s]      # sw:268
                     if not lg_l[j]:

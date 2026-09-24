@@ -1,3 +1,15 @@
+# MORNING SUMMARY / STATUS (updated during the 2026-09-24 overnight run)
+
+Plan: `/home/philip/.claude/plans/write-this-down-and-snappy-spindle.md` (section "8-hour autonomous run"). Rules: commits only as akekulip, no trailers, no push, nothing on the switch.
+
+## Hurdles (symptom, cause, fix, file)
+- Report script took 25 min and timed out: flow bootstrap recomputed confusion sums per replicate -> precompute weighted totals once per run (`scripts/g5_peerrush_report.py`).
+- D1 looked worse under attack on PeerRush: not a bug; the wrap window incidentally evicts holders (d1w alone causes it). MAWI split shows D1 near-neutral there (`docs/results_g4a_d1parts.md`).
+- MAWI D1-parts report showed only the replication day: filter `"_p_" not in name` also matched the day letter -> regex on the file suffix (`scripts/g4a_d1parts_report.py`).
+- `test_dgrade_targeted` failed after adding `Attack.slot2`: `TargetedAttack(..., failed)` was positional -> keyword call (`src/dgrade/inject_targeted.py`).
+- Own new test wrong (flow 2 took table A slot, not B) -> test corrected (`tests/test_dgrade_twoway.py`); emulator behaviour was right.
+- Code review: D4 holders were not paired with the one-table draw -> slots2 drawn last in `build_fill`; guard against identical hashes in both tables.
+
 # WORKING_NOTES — MVM-Lite (ML class project)
 
 ## Task
