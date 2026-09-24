@@ -58,7 +58,7 @@ def run(job: str) -> None:
     models = TableModels(load_tables(ART))
     uniq, inv = tuple_table(pk["src_ip"], pk["dst_ip"], pk["src_port"], pk["dst_port"], pk["proto"])
     fh = hash_unique(uniq, "crc", None)[inv]
-    two = arm in ("d4", "d5", "d4s")       # D4/D5: two half-size tables (same total capacity), independent second hash; D4s: same index (2-way set-associative)
+    two = arm in ("d4", "d5", "d4s", "d4a", "d4c")       # D4/D5: two half-size tables (same total capacity), independent second hash; D4s: same index (2-way set-associative)
     h2seed = 7919 if arm == "d4" else 900_000 + g
     if two:
         half = N_SLOTS // 2

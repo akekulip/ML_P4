@@ -34,6 +34,34 @@ def mawi_jobs() -> list[str]:
     return j
 
 
+def mawi2_jobs() -> list[str]:
+    """Post-review additions (docs/preregistration.md, G6 addendum): fixed-budget sweep, model gate, D4s replication, doubled table, D4a."""
+    j: list[str] = []
+    atk = lambda d, f, g, arm="", n="", gate="oracle": f"g2b_mawi.py {d}:{gate}:b0l:{f}@{g}" + (f"+{arm}" if arm else "") + (f"~{n}" if n else "")
+    base = lambda d, g, arm="", n="", gate="oracle": f"g2_mawi.py {d}:{gate}:crc@{g}" + (f"+{arm}" if arm else "") + (f"~{n}" if n else "")
+    for n, f in ((32768, 20), (16384, 40), (8192, 80)):            # fixed holder count: 6,554 holders whatever the table size
+        for g in C10:
+            j += [atk("p", f, g, "", n), atk("p", f, g, "d4", n)]
+    for g in C10:                                                  # shipped flow-size gate
+        j += [atk("p", 10, g, "", "", "model"), base("p", g, "d4", "", "model"), atk("p", 10, g, "d4", "", "model")]
+    for g in C10:                                                  # D4s on the replication day
+        j += [base("r", g, "d4s"), atk("r", 10, g, "d4s")]
+    for g in range(10, 30):                                        # doubled table: primary day to 30 draws
+        j += [base("p", g, "", 131072), atk("p", 5, g, "", 131072)]
+    for g in C10:                                                  # doubled table on the replication day
+        j += [base("r", g, "", 131072), atk("r", 5, g, "", 131072)]
+    for g in C3:                                                   # placement ablation
+        j += [base("p", g, "d4a"), atk("p", 10, g, "d4a")]
+    return j
+
+
+def mawi3_jobs() -> list[str]:
+    """D4c placement (docs/preregistration.md, G6 addendum 2)."""
+    atk = lambda d, f, g, arm: f"g2b_mawi.py {d}:oracle:b0l:{f}@{g}+{arm}"
+    base = lambda d, g, arm: f"g2_mawi.py {d}:oracle:crc@{g}+{arm}"
+    return [x for g in C3 for x in (base("p", g, "d4c"), atk("p", 10, g, "d4c"))] + [x for g in C10 for x in (base("r", g, "d4c"), atk("r", 10, g, "d4c"))]
+
+
 def pr_jobs() -> list[str]:
     j = [f"25:und@{g}" for g in C3 if g >= 10 and g not in (12, 18, 24)]          # extend undefended f = 25% to 30 draws
     j += [f"25:d4@{g}" for g in C3] + [f"0:d4@{g}" for g in C3] + [f"10:d4@{g}" for g in C3]
@@ -44,7 +72,7 @@ def pr_jobs() -> list[str]:
 
 
 def check(kind: str, jobs: list[str]) -> list[str]:
-    have = {p.name for p in (ROOT / ("results/g2" if kind == "mawi" else "results/g5")).glob("*.npz")}
+    have = {p.name for p in (ROOT / ("results/g5" if kind == "pr" else "results/g2")).glob("*.npz")}
     bad: list[str] = []
     if kind == "pr":
         names = have | {f"pr_{x.replace(':', '_').replace('@', '_at')}.npz" for x in jobs}
@@ -61,11 +89,11 @@ def check(kind: str, jobs: list[str]) -> list[str]:
             body, _, n = spec.partition("~")
             head, _, arm = body.partition("+")
             left, g = head.split("@")
-            d, _, mode, *f = left.split(":")
+            d, gate, mode, *f = left.split(":")
             suf = (f"_p_{arm}" if arm else "") + (f"_n{n}" if n else "")
             if mode == "b0l" and arm:
-                partners = [f"b_{d}_oracle_b0l_{f[0]}_at{g}" + (f"_n{n}" if n else "") + ".npz",
-                            f"a_{d}_oracle_crc_at{g}{suf}.npz"]
+                partners = [f"b_{d}_{gate}_b0l_{f[0]}_at{g}" + (f"_n{n}" if n else "") + ".npz",
+                            f"a_{d}_{gate}_crc_at{g}{suf}.npz"]
                 for need in partners:
                     if need not in have and not any(need == _name(k, y) for k, y in _all_mawi(jobs)):
                         bad.append(f"{x}: missing {need}")
@@ -77,9 +105,9 @@ def _name(_k: str, spec: str) -> str:
     body, _, n = s.partition("~")
     head, _, arm = body.partition("+")
     left, g = head.split("@")
-    d, _, mode, *f = left.split(":")
+    d, gate, mode, *f = left.split(":")
     suf = (f"_p_{arm}" if arm else "") + (f"_n{n}" if n else "")
-    return (f"b_{d}_oracle_b0l_{f[0]}_at{g}{suf}.npz" if mode == "b0l" else f"a_{d}_oracle_crc_at{g}{suf}.npz")
+    return (f"b_{d}_{gate}_b0l_{f[0]}_at{g}{suf}.npz" if mode == "b0l" else f"a_{d}_{gate}_crc_at{g}{suf}.npz")
 
 
 def _all_mawi(jobs):
@@ -88,7 +116,7 @@ def _all_mawi(jobs):
 
 if __name__ == "__main__":
     kind = sys.argv[1]
-    jobs = mawi_jobs() if kind == "mawi" else pr_jobs()
+    jobs = mawi_jobs() if kind == "mawi" else mawi2_jobs() if kind == "mawi2" else mawi3_jobs() if kind == "mawi3" else pr_jobs()
     if "--check" in sys.argv:
         bad = check(kind, jobs)
         print("\n".join(bad) if bad else f"pairing ok ({len(jobs)} jobs)")

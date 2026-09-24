@@ -138,3 +138,41 @@ def test_two_table_holders_are_paired_with_the_one_table_draw():
     two = build_fill(0.1, "k0", 4096, 20 * 10**9, np.random.default_rng(5), tables=2)
     assert np.array_equal(one.pk["ts_ns"], two.pk["ts_ns"]) and np.array_equal(one.hash, two.hash)
     assert np.all(two.slot < 2048) and np.all(two.slot2 >= 2048) and np.all(two.slot2 < 4096)
+
+
+def test_a_first_policy_takes_table_a_even_when_b_has_been_idle_longer():
+    f1a, f2, f1b = flow(3, 1), flow(3, 2, t0=100 * MS), flow(3, 1, t0=1000 * MS)     # flow 1 in slot 0, flow 2 pushed to slot 5, flow 1 returns
+    f3, f1c = flow(2, 3, t0=3000 * MS), flow(1, 1, t0=3100 * MS)                     # newcomer sees slot 0 (idle since 1.02 s) and slot 5 (since 0.12 s)
+    cands = {1: (0, 4), 2: (0, 5), 3: (0, 5)}
+
+    def flow1_after_newcomer(policy):
+        pk = np.concatenate([f1a, f2, f1b, f3, f1c])
+        pk = pk[np.argsort(pk["ts_ns"], kind="stable")]
+        a = np.array([cands[int(p)][0] for p in pk["src_port"]]); b = np.array([cands[int(p)][1] for p in pk["src_port"]])
+        h = (pk["src_port"].astype(np.uint32) + 1000).astype(np.uint32)
+        sim = NetBeaconSim(models=StubModels(), n_slots=S, clock_offset_ns=300 * (1 << 20), two_way=True, two_way_policy=policy)
+        out = sim.run(pk, force_slot=a, force_hash=h, force_long=np.ones(len(pk), dtype=bool), force_slot2=b)
+        assert out["outcome"][np.flatnonzero(pk["src_port"] == 3)[0]] == NEW_OWNER
+        return out["outcome"][np.flatnonzero((pk["src_port"] == 1) & (pk["ts_ns"] == 3100 * MS))[0]]
+
+    assert flow1_after_newcomer("idle") == OWNER          # the newcomer took slot 5 (idle longest); flow 1 keeps slot 0
+    assert flow1_after_newcomer("a_first") == NEW_OWNER   # the newcomer took slot 0; flow 1 must claim its other candidate
+    with pytest.raises(ValueError):
+        NetBeaconSim(models=StubModels(), n_slots=8, two_way=True, two_way_policy="x").run(flow(3, 1))
+
+
+def test_unclaimed_first_policy_prefers_a_never_claimed_slot_over_an_idle_claimed_one():
+    f1, f3, f1c = flow(3, 1), flow(2, 3, t0=3000 * MS), flow(1, 1, t0=3100 * MS)     # flow 1 claims slot 0 and goes idle
+    cands = {1: (0, 4), 3: (0, 5)}                                                   # newcomer 3 sees idle slot 0 (A) and never-claimed slot 5 (B)
+
+    def flow1_late(policy):
+        pk = np.concatenate([f1, f3, f1c]); pk = pk[np.argsort(pk["ts_ns"], kind="stable")]
+        a = np.array([cands[int(p)][0] for p in pk["src_port"]]); b = np.array([cands[int(p)][1] for p in pk["src_port"]])
+        h = (pk["src_port"].astype(np.uint32) + 1000).astype(np.uint32)
+        sim = NetBeaconSim(models=StubModels(), n_slots=S, clock_offset_ns=300 * (1 << 20), two_way=True, two_way_policy=policy)
+        out = sim.run(pk, force_slot=a, force_hash=h, force_long=np.ones(len(pk), dtype=bool), force_slot2=b)
+        return out["outcome"][np.flatnonzero((pk["src_port"] == 1) & (pk["ts_ns"] == 3100 * MS))[0]]
+
+    assert flow1_late("unclaimed_first") == OWNER        # the newcomer took never-claimed slot 5; flow 1 keeps slot 0
+    assert flow1_late("idle") == OWNER                    # same choice for the idle policy
+    assert flow1_late("a_first") == NEW_OWNER             # the newcomer took slot 0; flow 1 must claim its other candidate

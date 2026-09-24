@@ -88,7 +88,7 @@ def run(job: str) -> None:
     models = CachedModels(load_tables(ART), z["pkt_code"].astype(np.int64), z["flow_score"].astype(np.int64),
                           z["long_flag"] if gate == "oracle" else None)
     fh = hash_unique(z["uniq"], kind, hseed)[z["inv"]]
-    two = dfn in ("d4", "d5", "d4s")                    # D4/D5: two half-size tables (same total capacity), independent second hash
+    two = dfn in ("d4", "d5", "d4s", "d4a", "d4c")                    # D4/D5: two half-size tables (same total capacity), independent second hash
     h2seed = 7919 if dfn == "d4" else 900_000 + int(g)
     if two:
         half = n_slots // 2

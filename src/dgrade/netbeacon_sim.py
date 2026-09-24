@@ -326,6 +326,7 @@ class NetBeaconSim:
     wrap_window: bool = True             # robustness switch: False uses an unwrapped clock (no 4.295 s eviction window)
     two_way: bool = False                # D4: two half-size tables with independent hashes; a newcomer is refused only if both candidates are held
     hash2_seed: int = 7919               # D4: draws the second table's hash (an irreducible polynomial)
+    two_way_policy: str = "idle"         # D4 placement: "idle" prefers a never-claimed slot then the longest idle; "a_first" takes table A if takeable, else B; "unclaimed_first" prefers a never-claimed slot, else A
     square: Callable[[int], int] = field(default=sqr)
 
     def run(self, pk: np.ndarray, isolate: np.ndarray | None = None, force_slot: np.ndarray | None = None,
@@ -349,6 +350,8 @@ class NetBeaconSim:
                 raise ValueError("two_way needs an even n_slots")
             if self.rent is not None:
                 raise ValueError("two_way is not combined with rent admission")
+            if self.two_way_policy not in ("idle", "a_first", "unclaimed_first"):
+                raise ValueError(f"unknown two_way_policy {self.two_way_policy!r}")
             if self.hash_kind == "polyirr" and self.hash_seed == self.hash2_seed:
                 raise ValueError("two_way: table A and table B would use the same hash (one table of double size)")
         if np.any(np.diff(pk["ts_ns"]) < 0):
@@ -478,8 +481,8 @@ class NetBeaconSim:
                             s = s2 if (claimed[s2] and not claimed[s]) else s          # refusal is reported as a collision if either was claimed
                         elif b1:
                             s = s2
-                        elif not b2:                                                  # both takeable: prefer never claimed, then the longest idle
-                            if (claimed[s] and not claimed[s2]) or (claimed[s] == claimed[s2] and lc2 > lc1):
+                        elif not b2 and self.two_way_policy != "a_first":             # both takeable: prefer never claimed, then (idle policy) the longest idle
+                            if (claimed[s] and not claimed[s2]) or (self.two_way_policy == "idle" and claimed[s] == claimed[s2] and lc2 > lc1):
                                 s = s2
                 if h != r_hash[s]:                                    # new flow at this slot (sw:606)
                     lastc = (now - r_lastc[s]) & _M32 if self.wrap_window else now - r_lastc[s]      # sw:268

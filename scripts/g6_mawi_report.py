@@ -36,36 +36,49 @@ def main() -> None:
                 return None
         return cache[name]
 
-    def nm(kind: str, d: str, g: int, f: int = 0, arm: str = "", n: int = 65536) -> str:
+    def nm(kind: str, d: str, g: int, f: int = 0, arm: str = "", n: int = 65536, gate: str = "oracle") -> str:
         suf = (f"_p_{arm}" if arm else "") + (f"_n{n}" if n != 65536 else "")
-        return f"b_{d}_oracle_b0l_{f}_at{g}{suf}.npz" if kind == "b" else f"a_{d}_oracle_crc_at{g}{suf}.npz"
+        return f"b_{d}_{gate}_b0l_{f}_at{g}{suf}.npz" if kind == "b" else f"a_{d}_{gate}_crc_at{g}{suf}.npz"
 
     memo: dict[tuple, float | None] = {}
 
-    def stats(d: str, g: int, f: int, arm: str, n: int) -> tuple[float, float] | None:
-        """(benign flows downgraded, collision-refusal share) of one run, computed once."""
-        k = (d, g, f, arm, n)
+    perflow: dict[tuple, np.ndarray] = {}                # per-flow downgraded flags (kept for the primary-day f = 10% cluster bootstrap)
+    KEEP_FLOWS = {("p", 10), ("p", 0), ("r", 10), ("r", 0)}
+
+    def stats(d: str, g: int, f: int, arm: str, n: int, gate: str = "oracle") -> tuple[float, float, float] | None:
+        """(benign flows downgraded, collision-refusal share, downgraded-packet share) of one run, computed once."""
+        k = (d, g, f, arm, n, gate)
         if k not in memo:
-            name = nm("b" if f else "a", d, g, f, arm, n)
+            name = nm("b" if f else "a", d, g, f, arm, n, gate)
             o = load(name, "benign_outcome" if f else "outcome")
-            memo[k] = None if o is None else (float(downgraded_flows(o, idx[d]).sum()), float(np.mean(o == FALLBACK_COLLISION)))
+            if o is None:
+                memo[k] = None
+            else:
+                dg = downgraded_flows(o, idx[d])
+                memo[k] = (float(dg.sum()), float(np.mean(o == FALLBACK_COLLISION)), float(dg[idx[d].code].mean()))
+                if n == 65536 and gate == "oracle" and (d, f) in KEEP_FLOWS:
+                    perflow[k] = dg.astype(np.int8)
             cache.pop(name, None)                       # free the large outcome array
         return memo[k]
 
-    def flows(d: str, g: int, f: int, arm: str, n: int = 65536) -> float | None:
-        s = stats(d, g, f, arm, n)
+    def flows(d: str, g: int, f: int, arm: str, n: int = 65536, gate: str = "oracle") -> float | None:
+        s = stats(d, g, f, arm, n, gate)
         return None if s is None else s[0]
 
-    def refusal(d: str, g: int, f: int, arm: str, n: int = 65536) -> float | None:
-        s = stats(d, g, f, arm, n)
+    def refusal(d: str, g: int, f: int, arm: str, n: int = 65536, gate: str = "oracle") -> float | None:
+        s = stats(d, g, f, arm, n, gate)
         return None if s is None else s[1]
 
-    def series(d: str, f: int, arm: str, clocks, n: int = 65536):
+    def pshare(d: str, g: int, f: int, arm: str, n: int = 65536, gate: str = "oracle") -> float | None:
+        s = stats(d, g, f, arm, n, gate)
+        return None if s is None else s[2]
+
+    def series(d: str, f: int, arm: str, clocks, n: int = 65536, gate: str = "oracle"):
         """Paired arrays over draws for which every needed run exists: E_und, E_arm, G, refusal shares."""
         rows = []
         for g in clocks:
-            v = [flows(d, g, f, "", n), flows(d, g, 0, "", n), flows(d, g, f, arm, n), flows(d, g, 0, arm, n)]
-            r = [refusal(d, g, f, "", n), refusal(d, g, f, arm, n), refusal(d, g, 0, "", n), refusal(d, g, 0, arm, n)]
+            v = [flows(d, g, f, "", n, gate), flows(d, g, 0, "", n, gate), flows(d, g, f, arm, n, gate), flows(d, g, 0, arm, n, gate)]
+            r = [refusal(d, g, f, "", n, gate), refusal(d, g, f, arm, n, gate), refusal(d, g, 0, "", n, gate), refusal(d, g, 0, arm, n, gate)]
             if None not in v and None not in r:
                 rows.append((v[0] - v[1], v[2] - v[3], v[1] - v[3], *r, v[2] - v[1]))
         return np.array(rows, float).reshape(-1, 8)
@@ -84,7 +97,21 @@ def main() -> None:
         s = rng.choice([-1.0, 1.0], (n, len(d)))
         return float((np.sum((s * d).mean(1) >= obs - 1e-12) + 1) / (n + 1))
 
-    L = ["# G6 on MAWI: capacity-matched two-choice tables (D4, D5, D4s)", "",
+    def flow_cluster_ci(d: str, f: int, arm: str, clocks, reps: int = 200) -> tuple[float, float] | None:
+        """Bootstrap over benign flows (the draws share one capture): interval for R = 1 - mean(E_arm) / mean(E_und)."""
+        cs = [g for g in clocks if all(stats(d, g, ff, aa, 65536) is not None for ff, aa in ((f, ""), (0, ""), (f, arm), (0, arm)))]
+        if len(cs) < 3:
+            return None
+        du = np.stack([perflow[(d, g, f, "", 65536, "oracle")] - perflow[(d, g, 0, "", 65536, "oracle")] for g in cs]).astype(np.float32)
+        dx = np.stack([perflow[(d, g, f, arm, 65536, "oracle")] - perflow[(d, g, 0, arm, 65536, "oracle")] for g in cs]).astype(np.float32)
+        rng = np.random.default_rng(5)
+        out = []
+        for _ in range(reps):
+            w = np.bincount(rng.integers(0, du.shape[1], du.shape[1]), minlength=du.shape[1]).astype(np.float32)
+            out.append(1 - (dx @ w).mean() / max((du @ w).mean(), 1e-9))
+        return float(np.percentile(out, (100 - LVL_HOLM) / 2)), float(np.percentile(out, 100 - (100 - LVL_HOLM) / 2))
+
+    L = ["# G6 on MAWI: capacity-matched two-choice tables (D4, D5, D4s, D4a)", "",
          ("Generated by `scripts/g6_mawi_report.py` from `results/g2/`. Oracle gate, random-slot (B0-L) fill at 4 packets/s, f = nominal holder load per "
           "slot. Loss = benign flows downgraded. **Recovery** R = 1 − mean(E_arm) / mean(E_und) with E measured against each arm's own no-attack run, "
           "paired by draw; **benign gain** = undefended no-attack minus the arm's no-attack; **G4a-style** = the ratio against the undefended no-attack "
@@ -93,18 +120,20 @@ def main() -> None:
 
     for d, dn in DAYS.items():
         L += [f"## {dn}", "",
-              ("| f | arm | draws | E_und (flows) | E_arm | benign gain | R [CI] | R > 0.5 (sign-flip p) | G4a-style | "
-               "refusal share: und, arm (no attack) | refusal share: und, arm (fill) |"), "|---|---|---|---|---|---|---|---|---|---|---|"]
+              ("| f | arm | draws | E_und (flows) | E_arm | benign gain | R [draw CI] | R [benign-flow CI] | R > 0.5 (sign-flip p, Monte Carlo, unadjusted) | "
+               "G4a-style | refusal share: und, arm (no attack) | refusal share: und, arm (fill) |"), "|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for f in (10, 25, 50):
-            for arm in ("d4", "d5", "d4s"):
+            for arm in ("d4", "d5", "d4s", "d4a", "d4c"):
                 a = series(d, f, arm, range(30))
                 if not len(a):
                     continue
                 r, lo, hi = rec_ci(a)
+                fc = flow_cluster_ci(d, f, arm, range(30)) if (d, f) in KEEP_FLOWS else None
+                fcs = f"[{fc[0]:+.2f}, {fc[1]:+.2f}]" if fc else "n/a"
                 p = signflip_p(0.5 * a[:, 0] - a[:, 1])
                 g4 = 1 - a[:, 7].mean() / max(a[:, 0].mean(), 1e-9)      # defended attack against the undefended no-attack run
                 L.append(f"| {f}% | {arm} | {len(a)} | {a[:, 0].mean():,.0f} | {a[:, 1].mean():,.0f} | {a[:, 2].mean():+,.0f} | "
-                         f"{r:+.2f} [{lo:+.2f}, {hi:+.2f}] | {p:.4f} | {g4:+.2f} | {a[:, 5].mean():.2%}, {a[:, 6].mean():.2%} | "
+                         f"{r:+.2f} [{lo:+.2f}, {hi:+.2f}] | {fcs} | {p:.4f} | {g4:+.2f} | {a[:, 5].mean():.2%}, {a[:, 6].mean():.2%} | "
                          f"{a[:, 3].mean():.2%}, {a[:, 4].mean():.2%} |")
         L.append("")
 
@@ -130,6 +159,12 @@ def main() -> None:
         L += ["", f"D4 against D4s (2-way set-associative): (E_D4s − E_D4) / E_und = {(as_[:m, 1].mean() - a4[:m, 1].mean()) / max(a4[:m, 0].mean(), 1e-9):+.3f} "
               f"[{lo:+.3f}, {hi:+.3f}] over {m} draws. An interval that excludes zero means independent hashes matter; if it includes zero, "
               "the claim is two-choice at equal capacity, not independent hashes."]
+        r4 = 1 - a4[:m, 1].mean() / max(a4[:m, 0].mean(), 1e-9)
+        rs = 1 - as_[:m, 1].mean() / max(as_[:m, 0].mean(), 1e-9)
+        L += ["", (f"**Pre-registered prediction \"D4s within ±0.1 of D4 in recovery\": {'FALSIFIED' if abs(r4 - rs) > 0.1 else 'not falsified'}** "
+                   f"(R_D4 = {r4:+.2f}, R_D4s = {rs:+.2f}, gap {r4 - rs:+.2f}). Post-hoc, untested explanation: the two ways of one set both fail when the set "
+                   "holds two holders, about twice the rate of two independent slots (2ρ² against ρ²), which would roughly double the residual excess. "
+                   "Independent hashes therefore matter for the load balance against an oblivious fill; this says nothing about robustness against a hash-knowing attacker.")]
     else:
         L += ["", "D4s not run."]
 
@@ -163,8 +198,8 @@ def main() -> None:
 
     # load sweep
     L += ["", "## Load sweep (primary day, f = 10%, clocks 0 to 9)", "",
-          "| table slots | undefended no-attack refusal share (load proxy) | draws | E_und (flows) | E_D4 | benign gain | R [CI] | "
-          "downgraded flows under fill: undefended, D4 |", "|---|---|---|---|---|---|---|---|"]
+          "| table slots | benign occupancy (median 3,652 to 4,383 alive long flows, G5 amendment) | undefended no-attack refusal share (load proxy) | draws | E_und (flows) | E_D4 | benign gain | R [CI] | "
+          "downgraded flows under fill: undefended, D4 |", "|---|---|---|---|---|---|---|---|---|"]
     for n_ in (65536, 32768, 16384, 8192):
         a = series("p", 10, "d4", range(10), n_)
         if not len(a):
@@ -173,24 +208,58 @@ def main() -> None:
         cs = [g for g in range(10) if flows("p", g, 10, "", n_) is not None and flows("p", g, 10, "d4", n_) is not None]
         fu = np.mean([flows("p", g, 10, "", n_) for g in cs])
         fd = np.mean([flows("p", g, 10, "d4", n_) for g in cs])
-        L.append(f"| {n_:,} | {a[:, 5].mean():.2%} | {len(a)} | {a[:, 0].mean():,.0f} | {a[:, 1].mean():,.0f} | {a[:, 2].mean():+,.0f} | "
+        L.append(f"| {n_:,} | {3652 / n_:.0%} to {4383 / n_:.0%} | {a[:, 5].mean():.2%} | {len(a)} | {a[:, 0].mean():,.0f} | {a[:, 1].mean():,.0f} | {a[:, 2].mean():+,.0f} | "
                  f"{r:+.2f} [{lo:+.2f}, {hi:+.2f}] | {fu:,.0f}, {fd:,.0f} |")
-    # exploratory baseline: a table of twice the size with the same number of holders (not pre-registered in G6)
-    cs = [g for g in range(10) if None not in (flows("p", g, 10, ""), flows("p", g, 0, ""), flows("p", g, 10, "d4"), flows("p", g, 0, "d4"),
-                                              flows("p", g, 5, "", 131072), flows("p", g, 0, "", 131072))]
-    if cs:
-        m = lambda f_, arm, n_: float(np.mean([flows("p", g, f_, arm, n_) for g in cs]))
-        e_dbl = m(5, "", 131072) - m(0, "", 131072)
-        L += ["", "## Exploratory baseline: double the table (not pre-registered in G6; baseline 5 of the paper plan)", "",
-              (f"Primary day, oracle gate, clocks {cs[0]} to {cs[-1]} ({len(cs)} draws). The same number of holders (10% of 65,536 slots = 5% of 131,072) "
-               "attacks a table of twice the size; D4 keeps the capacity at 65,536 slots. Downgraded benign flows:"), "",
-              "| design | slots | no attack | under fill | excess |", "|---|---|---|---|---|",
-              f"| undefended | 65,536 | {m(0, '', 65536):,.0f} | {m(10, '', 65536):,.0f} | {m(10, '', 65536) - m(0, '', 65536):,.0f} |",
-              f"| D4 | 65,536 | {m(0, 'd4', 65536):,.0f} | {m(10, 'd4', 65536):,.0f} | {m(10, 'd4', 65536) - m(0, 'd4', 65536):,.0f} |",
-              f"| undefended | 131,072 | {m(0, '', 131072):,.0f} | {m(5, '', 131072):,.0f} | {e_dbl:,.0f} |", "",
-              (f"Excess under fill: D4 {m(10, 'd4', 65536) - m(0, 'd4', 65536):,.0f} flows, doubled table {e_dbl:,.0f} flows; total downgraded under fill: "
-               f"D4 {m(10, 'd4', 65536):,.0f}, doubled table {m(5, '', 131072):,.0f}. D4 costs a second hash and a register split at equal capacity; a "
-               "larger table costs SRAM.")]
+    # fixed holder count sweep (6,554 holders whatever the table size)
+    L += ["", "## Fixed-budget sweep (primary day, 6,554 holders, clocks 0 to 9; exploratory, added after review)", "",
+          "| table slots | nominal f | draws | E_und (flows) | E_D4 | benign gain | R [CI] | downgraded flows under fill: undefended, D4 |", "|---|---|---|---|---|---|---|---|"]
+    for n_, f_ in ((65536, 10), (32768, 20), (16384, 40), (8192, 80)):
+        a = series("p", f_, "d4", range(10), n_)
+        if not len(a):
+            continue
+        r, lo, hi = rec_ci(a)
+        cs = [g for g in range(10) if flows("p", g, f_, "", n_) is not None and flows("p", g, f_, "d4", n_) is not None]
+        L.append(f"| {n_:,} | {f_}% | {len(a)} | {a[:, 0].mean():,.0f} | {a[:, 1].mean():,.0f} | {a[:, 2].mean():+,.0f} | {r:+.2f} [{lo:+.2f}, {hi:+.2f}] | "
+                 f"{np.mean([flows('p', g, f_, '', n_) for g in cs]):,.0f}, {np.mean([flows('p', g, f_, 'd4', n_) for g in cs]):,.0f} |")
+
+    # shipped (model) flow-size gate
+    L += ["", "## Shipped flow-size gate (primary day, f = 10%; exploratory, added after review)", "",
+          ("With the shipped PeerRush-trained gate about a million MAWI flows compete for slots (G2a), so benign occupancy is far higher than under the oracle "
+           "gate. Loss here counts every benign flow downgraded (not only long flows)."), "",
+          "| arm | draws | E_und (flows) | E_arm | benign gain | R [CI] | collision-refusal share under fill: und, arm |", "|---|---|---|---|---|---|---|"]
+    a = series("p", 10, "d4", range(10), 65536, "model")
+    if len(a):
+        r, lo, hi = rec_ci(a)
+        L.append(f"| d4 | {len(a)} | {a[:, 0].mean():,.0f} | {a[:, 1].mean():,.0f} | {a[:, 2].mean():+,.0f} | {r:+.2f} [{lo:+.2f}, {hi:+.2f}] | "
+                 f"{a[:, 3].mean():.2%}, {a[:, 4].mean():.2%} |")
+    else:
+        L.append("| d4 | not run | | | | | |")
+
+    # MAWI M1 (no attack): downgraded-packet share
+    L += ["", "## M1 on MAWI: change in the downgraded-packet share with no attack (pass if the upper bound of the increase is at most 0.5 percentage points)", "",
+          "| day | arm | draws | change vs undefended (pp; negative = fewer packets downgraded) | upper bound | M1 |", "|---|---|---|---|---|---|"]
+    for d, dn in DAYS.items():
+        for arm in ("d4", "d5", "d4s", "d4a", "d4c"):
+            dl = [(pshare(d, g, 0, arm) - pshare(d, g, 0, "")) * 100 for g in range(30) if pshare(d, g, 0, arm) is not None and pshare(d, g, 0, "") is not None]
+            if len(dl) < 3:
+                continue
+            dl = np.array(dl)
+            hi_ = float(np.percentile([np.random.default_rng(i).choice(dl, len(dl)).mean() for i in range(2000)], LVL_HOLM + (100 - LVL_HOLM) / 2))
+            L.append(f"| {dn} | {arm} | {len(dl)} | {dl.mean():+.3f} | {hi_:+.3f} | {'pass' if hi_ <= 0.5 else 'fail'} |")
+
+    # doubled table, both days (exploratory baseline 5 of the paper plan)
+    L += ["", "## Exploratory baseline: double the table (baseline 5 of the paper plan; added after review)", "",
+          "The same number of holders (10% of 65,536 slots = 5% of 131,072) attacks a table of twice the size; D4 keeps 65,536 slots in total. Downgraded benign flows:", "",
+          "| day | draws | design | slots | no attack | under fill | excess |", "|---|---|---|---|---|---|---|"]
+    for d, dn in DAYS.items():
+        cs = [g for g in range(30) if None not in (flows(d, g, 10, ""), flows(d, g, 0, ""), flows(d, g, 10, "d4"), flows(d, g, 0, "d4"),
+                                                  flows(d, g, 5, "", 131072), flows(d, g, 0, "", 131072))]
+        if not cs:
+            continue
+        m = lambda f_, arm, n_: float(np.mean([flows(d, g, f_, arm, n_) for g in cs]))
+        for lab, f_, arm, n_, f0 in (("undefended", 10, "", 65536, 0), ("D4", 10, "d4", 65536, 0), ("undefended", 5, "", 131072, 0)):
+            L.append(f"| {dn} | {len(cs)} | {lab} | {n_:,} | {m(f0, arm, n_):,.0f} | {m(f_, arm, n_):,.0f} | {m(f_, arm, n_) - m(f0, arm, n_):,.0f} |")
+    L += ["", "D4 costs a second hash and a register split at equal capacity; a larger table costs SRAM."]
     L += ["", "Reading: emulator results with an analytical holder abstraction. Deployability on Tofino-1 is unverified "
           "(`docs/lit/overnight_p4_feasibility.md`). The load-sweep row where R crosses zero bounds the claim: recovery of the attack's excess "
           "holds while benign occupancy is low and reverses when the table is heavily loaded, even though D4 still lowers the absolute number "

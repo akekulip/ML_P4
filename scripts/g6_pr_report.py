@@ -157,12 +157,15 @@ def main() -> None:
             L.append(f"| {arm} | {len(cs)} | {q['e_u'].mean():+.4f} | {q['e_x'].mean():+.4f} | {fmt(mit)} | "
                      f"{ex_u[0]:+.2f} [{ex_u[1][0]:+.2f}, {ex_u[1][1]:+.2f}] / [{ex_u[2][0]:+.2f}, {ex_u[2][1]:+.2f}] | {ru:.2%} / {ra:.2%} |")
             if f == 25 and arm == "d4":
-                strong = ex_u[1][0] >= 0.5
-                weak = mit[1][0] > 0 and mit[2][0] > 0
+                level = 2 if ex_u[1][0] >= 0.5 else 1 if mit[1][0] > 0 else 0        # 2 strong, 1 weak, 0 not resolved (draw intervals)
+                fl_ok = mit[2][0] > 0                                                 # pre-registered demotion: flow-cluster interval must exclude zero
+                final = level if fl_ok else max(level - 1, 0)
+                names = {2: "strong pass", 1: "weak pass (resolved positive, at-least-half not resolved)", 0: "inconclusive"}
                 fals = ex_u[1][1] < 0.25
-                verdicts.append("**H-D4-acc verdict (D4, f = 25%, " + f"{len(cs)} draws): "
-                                + ("strong pass" if strong else "weak pass (resolved positive, at-least-half not resolved)" if weak
-                                   else "falsified" if fals else "inconclusive") + ".**")
+                verdicts.append(f"**H-D4-acc verdict (D4, f = 25%, {len(cs)} draws): {'falsified' if fals else names[final]}.** By the draw "
+                                f"interval alone the result is a {names[level]}; the benign-flow interval for mitigation "
+                                f"{'excludes' if fl_ok else 'includes'} zero, so the pre-registered rule "
+                                f"{'leaves it unchanged' if fl_ok else 'drops it one level'}.")
     if verdicts:
         L += [""] + verdicts
     L += ["", "PeerRush f = 10% macro-F1 is descriptive (the undefended excess narrowly fails the G5 power gate). Emulator result on one capture; "

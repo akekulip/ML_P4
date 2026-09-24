@@ -46,7 +46,7 @@ def run(job: str) -> None:
         raise ValueError(f"unknown mode {mode!r}")
     kind, hseed = ("polyirr", g) if mode == "k0" else ("crc", None)
     fh = hash_unique(z["uniq"], kind, hseed)[z["inv"]]
-    two = dfn in ("d4", "d5", "d4s")                    # D4/D5: two half-size tables (same total capacity), independent second hash
+    two = dfn in ("d4", "d5", "d4s", "d4a", "d4c")                    # D4/D5: two half-size tables (same total capacity), independent second hash
     h2seed = 7919 if dfn == "d4" else 900_000 + g
     if two:
         if mode != "b0l":
