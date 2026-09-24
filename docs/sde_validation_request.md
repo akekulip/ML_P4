@@ -56,6 +56,43 @@ Record: exit code, stage count and critical path (`table_summary.log`), per-stag
 
 Build only in a separate `~/ml_p4/build_new` subdirectory; SDE 9.13.2 only; no `bf_switchd` restart; kill by PID, never `pkill -f`; no credentials printed; nothing touches the currently running program.
 
-### Decision needed
+### G9-A result (2026-09-24): DONE, exact match
 
-Approve G9-A and G9-B (compile-only and model-only, as detailed above), or name which to skip. G9-C (a small hardware smoke test) and G9-D (a 4-condition hardware campaign: no attack, MAWI 10%, MAWI 25%, PeerRush 25%) are explicitly **not** requested here — they are a separate, later decision after G9-B's result is known, and would need their own snapshot/restore plan since they take over the switch from whatever is currently running.
+Compiled in `~/ml_p4/build_new/d4c_g9a` on the switch host, SDE 9.13.2, `rc=0`, `0 errors, 15 warnings generated.` MVM (the running program) was not touched. Full log saved at `docs/g9a_9.13.2_mau.resources.log`.
+
+| | SDE 9.13.1 (local) | SDE 9.13.2 (switch host) |
+|---|---|---|
+| Ingress stages | 12 | 12 |
+| Critical path | 11 | 11 |
+| Stateful ALUs | 14 | 14 |
+| SRAM blocks | 191 | 191 |
+| Map RAM | 155 | 155 |
+| TCAM | 90 | 90 |
+| Hash bits | 330 | 330 |
+| Hash-distribution units | 15 | 15 |
+| Gateways | 44 | 44 |
+| Warnings | 15 | 15 |
+
+Every resource number is identical across the two compiler versions. This resolves the portability question this file raised: D4c's stage-fit result does not depend on which 9.13 compiler produced it.
+
+## G9-B: DEFERRED (2026-09-24), not attempted, not a failed validation
+
+Discovered before any run: the SDE software-model path (`run_tofino_model.sh`) is not a lightweight command. It requires `sudo` (the model drops privileges to `CAP_NET_RAW` for packet I/O, so it needs an interactive terminal, which I do not have), it installs the compiled program's target config into the **shared** SDE install tree that the currently-running MVM program also uses, and it needs a PTF-style packet-injection/capture harness with register-state introspection that does not exist in this repo. This is real engineering scope (a new implementation milestone), not a validation command, and it risks the running MVM environment for an optional paper validation. Philip's decision: **defer G9-B**. It is not run because the cost-benefit does not currently unlock a claim the paper needs, not because anything failed. If a reviewer specifically presses on runtime semantic equivalence, this becomes targeted work, ideally in an isolated target/config setup with its own recorded restore procedure, not the shared tree.
+
+## Evidence hierarchy (current state)
+
+```
+Abstract emulator (src/dgrade/netbeacon_sim.py)
+        v
+G8 compiled-semantics emulator (src/dgrade/netbeacon_tofino.py) -- PASSED, both datasets
+        v
+SDE 9.13.1 compile (local)         -- DONE, 12 stages
+        v
+SDE 9.13.2 compile (switch host)   -- DONE, identical to 9.13.1
+        v
+SDE packet model / Tofino runtime  -- NOT YET DONE (deferred)
+```
+
+## Decision needed
+
+None remaining for now. G9-C (a small hardware smoke test) and G9-D (a 4-condition hardware campaign) remain out of scope and undecided, contingent on G9-B, which is deferred.
