@@ -1,0 +1,525 @@
+--- src_base/switch.p4	2026-09-24 09:36:20.730858903 -0400
++++ src_pb/switch.p4	2026-09-24 09:53:59.059923102 -0400
+@@ -32,10 +32,10 @@
+     };
+     
+     action Update_total_bytes(){
+-        ig_md.total_bytes = Update_Register_total_bytes.execute(ig_md.flow_index);
++        ig_md.total_bytes = Update_Register_total_bytes.execute(ig_md.slot);
+     }
+     action Init_total_bytes(){
+-        ig_md.total_bytes = Init_Register_total_bytes.execute(ig_md.flow_index);
++        ig_md.total_bytes = Init_Register_total_bytes.execute(ig_md.slot);
+     }
+     
+ 
+@@ -53,10 +53,10 @@
+         }
+     };
+     action Init_total_pkts(){
+-        ig_md.total_pkts = Init_Register_total_pkts.execute(ig_md.flow_index);
++        ig_md.total_pkts = Init_Register_total_pkts.execute(ig_md.slot);
+     }
+     action Update_total_pkts(){
+-        ig_md.total_pkts = Update_Register_total_pkts.execute(ig_md.flow_index);
++        ig_md.total_pkts = Update_Register_total_pkts.execute(ig_md.slot);
+     }
+ 
+ 
+@@ -70,7 +70,7 @@
+         }
+     };
+     action Update_max_pkt_length(){
+-        ig_md.max_pkt_length = Update_Register_max_pkt_length.execute(ig_md.flow_index);
++        ig_md.max_pkt_length = Update_Register_max_pkt_length.execute(ig_md.slot);
+     }
+     RegisterAction<bit<16>, bit<Register_Index_Size>, bit<16>>(Register_max_pkt_length) Init_Register_max_pkt_length = { 
+         void apply(inout bit<16> value, out bit<16> read_value){
+@@ -79,7 +79,7 @@
+         }
+     };
+     action Init_max_pkt_length(){
+-        Init_Register_max_pkt_length.execute(ig_md.flow_index);
++        Init_Register_max_pkt_length.execute(ig_md.slot);
+     }
+ 
+ 
+@@ -93,7 +93,7 @@
+         }
+     };
+     action Update_min_pkt_length(){
+-        ig_md.min_pkt_length = Update_Register_min_pkt_length.execute(ig_md.flow_index);
++        ig_md.min_pkt_length = Update_Register_min_pkt_length.execute(ig_md.slot);
+     }
+     RegisterAction<bit<16>, bit<Register_Index_Size>, bit<16>>(Register_min_pkt_length) Init_Register_min_pkt_length = { 
+         void apply(inout bit<16> value, out bit<16> read_value){
+@@ -102,7 +102,7 @@
+         }
+     };
+     action Init_min_pkt_length(){
+-        ig_md.min_pkt_length = Init_Register_min_pkt_length.execute(ig_md.flow_index);
++        ig_md.min_pkt_length = Init_Register_min_pkt_length.execute(ig_md.slot);
+     }
+ 
+ 
+@@ -116,10 +116,10 @@
+         void apply(inout bit<16> value, out bit<16> read_value){value=0; read_value=value;}};
+     RegisterAction<bit<16>, bit<Register_Index_Size>, bit<16>>(Register_bin1) Init1_Register_bin1 = { 
+         void apply(inout bit<16> value, out bit<16> read_value){value=1; read_value=value;}};
+-    action Read_bin1(){ig_md.bin1 = Read_Register_bin1.execute(ig_md.flow_index);}
+-    action Update_bin1(){ig_md.bin1 = Update_Register_bin1.execute(ig_md.flow_index);}
+-    action Init0_bin1(){Init0_Register_bin1.execute(ig_md.flow_index);}
+-    action Init1_bin1(){Init1_Register_bin1.execute(ig_md.flow_index);}
++    action Read_bin1(){ig_md.bin1 = Read_Register_bin1.execute(ig_md.slot);}
++    action Update_bin1(){ig_md.bin1 = Update_Register_bin1.execute(ig_md.slot);}
++    action Init0_bin1(){Init0_Register_bin1.execute(ig_md.slot);}
++    action Init1_bin1(){Init1_Register_bin1.execute(ig_md.slot);}
+     
+     Register<bit<8>, bit<Register_Index_Size>>(Register_Table_Size) Register_bin2;
+     RegisterAction<bit<8>, bit<Register_Index_Size>, bit<8>>(Register_bin2) Update_Register_bin2 = { 
+@@ -130,10 +130,10 @@
+          void apply(inout bit<8> value, out bit<8> read_value){value=0; read_value=value;}};
+     RegisterAction<bit<8>, bit<Register_Index_Size>, bit<8>>(Register_bin2) Init1_Register_bin2 = { 
+          void apply(inout bit<8> value, out bit<8> read_value){value=1; read_value=value;}};
+-    action Read_bin2(){ig_md.bin2 = Read_Register_bin2.execute(ig_md.flow_index);}
+-    action Update_bin2(){ig_md.bin2 = Update_Register_bin2.execute(ig_md.flow_index);}
+-    action Init0_bin2(){Init0_Register_bin2.execute(ig_md.flow_index);}
+-    action Init1_bin2(){Init1_Register_bin2.execute(ig_md.flow_index);}
++    action Read_bin2(){ig_md.bin2 = Read_Register_bin2.execute(ig_md.slot);}
++    action Update_bin2(){ig_md.bin2 = Update_Register_bin2.execute(ig_md.slot);}
++    action Init0_bin2(){Init0_Register_bin2.execute(ig_md.slot);}
++    action Init1_bin2(){Init1_Register_bin2.execute(ig_md.slot);}
+ 
+ 
+     Register<bit<32>, bit<Register_Index_Size>>(Register_Table_Size) Register_last_pkt_timestamp;
+@@ -150,10 +150,10 @@
+         }
+     };
+     action Init_last_pkt_timestamp(){
+-        ig_md.ipd = Init_Register_last_pkt_timestamp.execute(ig_md.flow_index);
++        ig_md.ipd = Init_Register_last_pkt_timestamp.execute(ig_md.slot);
+     }
+     action Update_last_pkt_timestamp(){
+-        ig_md.ipd = Update_Register_last_pkt_timestamp.execute(ig_md.flow_index);
++        ig_md.ipd = Update_Register_last_pkt_timestamp.execute(ig_md.slot);
+     }
+ 
+     Register<bit<32>, bit<Register_Index_Size>>(Register_Table_Size) Register_min_ipd;
+@@ -172,10 +172,10 @@
+         }
+     };
+     action Init_min_ipd(){
+-        ig_md.min_ipd = Init_Register_min_ipd.execute(ig_md.flow_index);
++        ig_md.min_ipd = Init_Register_min_ipd.execute(ig_md.slot);
+     }
+     action Update_min_ipd(){
+-        ig_md.min_ipd = Update_Register_min_ipd.execute(ig_md.flow_index);
++        ig_md.min_ipd = Update_Register_min_ipd.execute(ig_md.slot);
+     }
+ 
+ 
+@@ -196,10 +196,10 @@
+         }
+     };
+     action Update_pkt_length_power_sum(){
+-        ig_md.pkt_length_power_sum = Update_Register_pkt_length_power_sum.execute(ig_md.flow_index);
++        ig_md.pkt_length_power_sum = Update_Register_pkt_length_power_sum.execute(ig_md.slot);
+     }
+     action Init_pkt_length_power_sum(){
+-        Init_Register_pkt_length_power_sum.execute(ig_md.flow_index);
++        Init_Register_pkt_length_power_sum.execute(ig_md.slot);
+     }
+ 
+     
+@@ -216,64 +216,102 @@
+     }
+ 
+ 
+-    Register<bit<8>, bit<Register_Index_Size>>(Register_Table_Size) Register_result;
+-    RegisterAction<bit<8>, bit<Register_Index_Size>, bit<8>>(Register_result) Update_Register_result = { 
+-        void apply(inout bit<8> value, out bit<8> read_value){
+-            value =  hdr.ipv4.ttl;
+-            read_value = value;
+-        }
+-    };
+-    RegisterAction<bit<8>, bit<Register_Index_Size>, bit<8>>(Register_result) Read_Register_result = { 
+-        void apply(inout bit<8> value, out bit<8> read_value){
+-            read_value = value;
+-        }
+-    };
+-    action Update_result(){
+-        ig_md.result = Update_Register_result.execute(ig_md.flow_index);
+-    }
+-    action Read_result(){
+-        ig_md.result = Read_Register_result.execute(ig_md.flow_index);
+-    }
+-
+-    
+-    Register<bit<32>, bit<Register_Index_Size>>(Register_Table_Size) Register_full_flow_hash; //hash as flow id
+-    RegisterAction<bit<32>, bit<Register_Index_Size>, bit<32>>(Register_full_flow_hash) Read_Register_full_flow_hash = { 
+-        void apply(inout bit<32> value, out bit<32> read_value){
+-            read_value = value;
+-        }
+-    };
+-    RegisterAction<bit<32>, bit<Register_Index_Size>, bit<32>>(Register_full_flow_hash) Update_Register_full_flow_hash = { 
+-        void apply(inout bit<32> value, out bit<32> read_value){
+-            value = ig_md.flow_hash;
+-            read_value = value;
+-        }
+-    };
+-    action Read_full_flow_hash(){
+-        ig_md.flow_hash1 = Read_Register_full_flow_hash.execute(ig_md.flow_index);
+-    }
+-    action Update_full_flow_hash(){
+-        ig_md.flow_hash1 = Update_Register_full_flow_hash.execute(ig_md.flow_index);
+-    }
+-    
+-
+-    Register<bit<32>, bit<Register_Index_Size>>(Register_Table_Size) Register_last_classified_timestamp;
+-    RegisterAction<bit<32>, bit<Register_Index_Size>, bit<32>>(Register_last_classified_timestamp) Update_Register_last_classified_timestamp = { 
+-        void apply(inout bit<32> value, out bit<32> read_value){
+-            value =  ig_md.now_timestamp;
+-            read_value = value;
++    // =====================================================================
++    // D4c (variant P-b): per-way identity state.
++    //   Register_id_{A,B}:     pair register, hi = 32-bit flow tag (the same
++    //                          CRC32 flow_hash NetBeacon stores), lo = last-seen
++    //                          time (NetBeacon's last_classified_timestamp).
++    //   Register_result_{A,B}: bit 8 = "claimed at least once", bits 7:0 = result.
++    //                          The claimed bit replaces the spec's tag==0 test: a
++    //                          Tofino-1 SALU has two comparators and the probe
++    //                          already uses both (own, recent), and its single
++    //                          output is the predicate, so the tag cannot come out.
++    // One SALU per way does the tag compare, the owner refresh and the idle
++    // test in one access. The eleven feature registers stay single arrays of
++    // 65536, indexed by the chosen slot {way, idx}.
++    // =====================================================================
++    // Second hash: independently keyed CRC-32 for table B. The coefficient is
++    // the normal form of the emulator's polyirr polynomial for hash2_seed=7919
++    // (reflected 0xa17d1390); it can be re-keyed at runtime through bfrt dynamic
++    // hashing. Symmetric like NetBeacon's hash so both directions share a slot.
++    CRCPolynomial<bit<32>>(32w0x09c8be85, true, false, false, 32w0xFFFFFFFF, 32w0xFFFFFFFF) poly_b;
++    @symmetric("hdr.ipv4.src_addr", "hdr.ipv4.dst_addr")
++    @symmetric("ig_md.src_port", "ig_md.dst_port")
++    Hash<bit<32>>(HashAlgorithm_t.CUSTOM, poly_b) hash_b;
++
++    action Hash_A() { ig_md.flow_hash  = my_symmetric_hash.get({hdr.ipv4.src_addr,hdr.ipv4.dst_addr,ig_md.src_port,ig_md.dst_port,hdr.ipv4.protocol}); }
++    action Hash_B() { ig_md.flow_hash2 = hash_b.get({hdr.ipv4.src_addr,hdr.ipv4.dst_addr,ig_md.src_port,ig_md.dst_port,hdr.ipv4.protocol}); }
++
++    Register<id_pair_t, bit<Way_Index_Size>>(Way_Table_Size) Register_id_A;
++    Register<id_pair_t, bit<Way_Index_Size>>(Way_Table_Size) Register_id_B;
++
++    // Pass 1: owner -> refresh last-seen. Returns the SALU 4-bit predicate over
++    // (cmplo = own, cmphi = recent). Tofino-1 SALUs have a single output source,
++    // so per-branch constants are not possible (bf-p4c: "cannot output constant
++    // ... because the predicate is output in another control flow").
++    RegisterAction<id_pair_t, bit<Way_Index_Size>, bit<8>>(Register_id_A) Probe_id_A = {
++        void apply(inout id_pair_t v, out bit<8> rv) {
++            // cmplo = own (tag match), cmphi = recent (idle < timeout); written
++            // inline because bf-p4c rejects a bool local holding the subtraction.
++            if (v.hi == ig_md.flow_hash) {
++                v.lo = ig_md.now_timestamp;
++            }
++            rv = this.predicate(v.hi == ig_md.flow_hash,
++                                ig_md.now_timestamp - v.lo < timeout_thres);
+         }
+     };
+-    RegisterAction<bit<32>, bit<Register_Index_Size>, bit<32>>(Register_last_classified_timestamp) Read_Register_last_classified_timestamp = { 
+-        void apply(inout bit<32> value, out bit<32> read_value){
+-            read_value = ig_md.now_timestamp - value;
++    RegisterAction<id_pair_t, bit<Way_Index_Size>, bit<8>>(Register_id_B) Probe_id_B = {
++        void apply(inout id_pair_t v, out bit<8> rv) {
++            // cmplo = own (tag match), cmphi = recent (idle < timeout); written
++            // inline because bf-p4c rejects a bool local holding the subtraction.
++            if (v.hi == ig_md.flow_hash) {
++                v.lo = ig_md.now_timestamp;
++            }
++            rv = this.predicate(v.hi == ig_md.flow_hash,
++                                ig_md.now_timestamp - v.lo < timeout_thres);
+         }
+     };
+-    action Read_last_classified_timestamp(){
+-        ig_md.last_classified = Read_Register_last_classified_timestamp.execute(ig_md.flow_index);
+-    }
+-    action Update_last_classified_timestamp(){
+-        Update_Register_last_classified_timestamp.execute(ig_md.flow_index);
+-    }
++    // Recirculated pass: write the tag only. last-seen is NOT refreshed at a
++    // takeover, exactly like NetBeacon (switch.p4:607,626 in the original).
++    RegisterAction<id_pair_t, bit<Way_Index_Size>, bit<8>>(Register_id_A) Claim_id_A = {
++        void apply(inout id_pair_t v) { v.hi = ig_md.flow_hash; }
++    };
++    RegisterAction<id_pair_t, bit<Way_Index_Size>, bit<8>>(Register_id_B) Claim_id_B = {
++        void apply(inout id_pair_t v) { v.hi = ig_md.flow_hash; }
++    };
++
++    Register<bit<16>, bit<Way_Index_Size>>(Way_Table_Size) Register_result_A;
++    Register<bit<16>, bit<Way_Index_Size>>(Way_Table_Size) Register_result_B;
++    RegisterAction<bit<16>, bit<Way_Index_Size>, bit<16>>(Register_result_A) Read_Register_result_A = {
++        void apply(inout bit<16> v, out bit<16> rv) { rv = v; }
++    };
++    RegisterAction<bit<16>, bit<Way_Index_Size>, bit<16>>(Register_result_B) Read_Register_result_B = {
++        void apply(inout bit<16> v, out bit<16> rv) { rv = v; }
++    };
++    RegisterAction<bit<16>, bit<Way_Index_Size>, bit<16>>(Register_result_A) Write_Register_result_A = {
++        void apply(inout bit<16> v) { v = (bit<16>) hdr.ipv4.ttl | CLAIMED; }
++    };
++    RegisterAction<bit<16>, bit<Way_Index_Size>, bit<16>>(Register_result_B) Write_Register_result_B = {
++        void apply(inout bit<16> v) { v = (bit<16>) hdr.ipv4.ttl | CLAIMED; }
++    };
++
++    action Probe_A() { ig_md.st_a = Probe_id_A.execute(ig_md.flow_hash[Way_Index_Size-1:0]); }
++    action Probe_B() { ig_md.st_b = Probe_id_B.execute(ig_md.flow_hash2[Way_Index_Size-1:0]); }
++    action Read_result_A() { ig_md.res_a = Read_Register_result_A.execute(ig_md.flow_hash[Way_Index_Size-1:0]); }
++    action Read_result_B() { ig_md.res_b = Read_Register_result_B.execute(ig_md.flow_hash2[Way_Index_Size-1:0]); }
++    // Recirculated pass (claim or post-classification write), way from pass 1.
++    // One action may drive only one stateful ALU (bf-p4c: "overlap ... require the
++    // meter address hardware"), so tag and result are written by separate actions.
++    action Claim_A()        { Claim_id_A.execute(ig_md.flow_hash[Way_Index_Size-1:0]); }
++    action Claim_B()        { Claim_id_B.execute(ig_md.flow_hash2[Way_Index_Size-1:0]); }
++    action Write_result_A() { Write_Register_result_A.execute(ig_md.flow_hash[Way_Index_Size-1:0]); ig_md.result = hdr.ipv4.ttl; }
++    action Write_result_B() { Write_Register_result_B.execute(ig_md.flow_hash2[Way_Index_Size-1:0]); ig_md.result = hdr.ipv4.ttl; }
++
++    // Placement outcomes. slot = way ++ idx addresses the shared feature registers.
++    action Own_A() { ig_md.act = ACT_OWN; ig_md.way = 0; ig_md.slot = 1w0 ++ ig_md.flow_hash[Way_Index_Size-1:0]; ig_md.result = ig_md.res_a[7:0]; }
++    action Own_B() { ig_md.act = ACT_OWN; ig_md.way = 1; ig_md.slot = 1w1 ++ ig_md.flow_hash2[Way_Index_Size-1:0]; ig_md.result = ig_md.res_b[7:0]; }
++    action New_A() { ig_md.act = ACT_NEW; ig_md.way = 0; ig_md.slot = 1w0 ++ ig_md.flow_hash[Way_Index_Size-1:0]; }
++    action New_B() { ig_md.act = ACT_NEW; ig_md.way = 1; ig_md.slot = 1w1 ++ ig_md.flow_hash2[Way_Index_Size-1:0]; }
+ 
+     action noaction(){}
+     
+@@ -544,7 +582,10 @@
+     }
+ 
+     apply{
+-        ig_md.flow_hash = my_symmetric_hash.get({hdr.ipv4.src_addr,hdr.ipv4.dst_addr,ig_md.src_port,ig_md.dst_port,hdr.ipv4.protocol});
++        // Two separate actions: one action can carry only 32 bits of hash output
++        // through the immediate path (bf-p4c: "immediate pathway 64 ... available bits 32").
++        Hash_A();
++        Hash_B();
+         ig_md.bin1=0;
+         ig_md.bin2=0;
+         ig_md.pkt_length_power_sum=0;
+@@ -554,8 +595,6 @@
+         ig_md.min_pkt_length=0;
+         ig_md.max_pkt_length=0;
+         ig_md.min_ipd=0;
+-        // ig_md.feat1_encode=0;
+-        // ig_md.feat2_encode=0;
+         ig_md.feat3_encode=0;
+         ig_md.feat4_encode=0;
+         ig_md.feat5_encode=0;
+@@ -571,17 +610,19 @@
+         ig_md.feat15_encode=0;
+         ig_md.feat16_encode=0;
+ 
+-
+         ig_md.tree1_confidence= 0;
+         ig_md.result = 0;
+         ig_md.flow_size = 0;
++        ig_md.act = ACT_NONE;
++        ig_md.way = 0;
+ 
+-        ig_md.zoom_pkt_length = hdr.ipv4.total_len >> 2; //Zoom in 4 times, if some datasets have packets larger than 1500, to prevent overflow
++        ig_md.zoom_pkt_length = hdr.ipv4.total_len >> 2;
+ 
+         ig_md.now_timestamp = (bit<32>) ig_prsr_md.global_tstamp>>20; // ms
+ 
+-        ig_md.flow_index = ig_md.flow_hash[Register_Index_Size-1:0];
+-        
++        // idx_A = flow_hash[14:0], idx_B = flow_hash2[14:0], used as slices directly
++        // (a separate copy into metadata cost one extra stage).
++
+         Feat3.apply();
+         Feat4.apply();
+         Feat5.apply();
+@@ -589,41 +630,50 @@
+         Feat7.apply();
+         Feat8.apply();
+         Feat9.apply();
+-        
++
+         Flow_Size_Tree.apply();
+         ig_tm_md.ucast_egress_port = egress_port;
+-        
+-        if(ig_intr_md.ingress_port == recirculate_port){ //recirculate packet
+-            Update_full_flow_hash();
+-            Update_result();
++
++        if(ig_intr_md.ingress_port == recirculate_port){ // recirculated pass: claim / result write in the way chosen in pass 1
++            if (hdr.ethernet.dst_addr[0:0] == 1) {
++                Claim_B();
++                Write_result_B();
++            } else {
++                Claim_A();
++                Write_result_A();
++            }
+             ig_md.tree1_confidence = hdr.ipv4.diffserv;
+             ig_md.total_pkts = hdr.ipv4.identification;
+         }
+         else{
+-            Read_result();
+-            Read_full_flow_hash();
++            Read_result_A();
++            Read_result_B();
+             if(!Flow_result.apply().hit){
+-            if(ig_md.flow_hash!=ig_md.flow_hash1){// new flow
+-                Read_last_classified_timestamp();
+-                if(ig_md.flow_size>50){ //long flow
+-                    if(!(ig_md.result<50 && ig_md.last_classified < timeout_thres)){ //determined result or timeout
+-                    Init_bin1_table.apply();
+-                    Init_bin2_table.apply();
+-                    Init_total_pkts_table.apply();
+-                    Init_total_bytes_table.apply();
+-                    Init_min_pkt_length_table.apply();
+-                    Init_max_pkt_length_table.apply();
+-                    Init_pkt_length_power_sum_table.apply();
+-                    ig_md.ipd = (bit<32>) ig_prsr_md.global_tstamp>>10;//us
+-                    Init_last_pkt_timestamp_table.apply();
+-                    Init_min_ipd_table.apply();
+-                    ig_tm_md.ucast_egress_port = recirculate_port; //init result register by recirculate
+-                   }
++                Probe_A();
++                Probe_B();
++                // ---- D4c placement (emulator two_way_policy="unclaimed_first") ----
++                if (ig_md.st_a == P_OWN || ig_md.st_a == P_OWN_RECENT) {
++                    Own_A();
++                } else if (ig_md.st_b == P_OWN || ig_md.st_b == P_OWN_RECENT) {
++                    Own_B();
++                } else if (ig_md.flow_size > 50) {                 // long-predicted newcomer
++                    if (ig_md.st_a == P_RECENT && ig_md.res_a[7:0] < 50) {        // A held
++                        if (!(ig_md.st_b == P_RECENT && ig_md.res_b[7:0] < 50)) { // B takeable
++                            New_B();
++                        }                                                          // else: both held, refused
++                    } else if (ig_md.st_b == P_RECENT && ig_md.res_b[7:0] < 50) { // only B held
++                        New_A();
++                    } else if (ig_md.res_a[8:8] == 1 && ig_md.res_b[8:8] == 0) {   // both takeable: prefer never-claimed B
++                        New_B();
++                    } else {
++                        New_A();
++                    }
+                 }
+-                ig_md.result = 0;
+-            }
+-            else{
+-                Update_last_classified_timestamp();
++
++                // Owner and newcomer paths must be ONE if/else so bf-p4c sees the Init_* and
++                // Update_* accesses of each feature register as mutually exclusive (two
++                // separate ifs on ig_md.act cost two extra stages: critical path 13).
++                if (ig_md.act == ACT_OWN) {
+                 if(ig_md.result<50){
+                     pkt_bin1.apply();
+                     pkt_bin2.apply();
+@@ -635,7 +685,7 @@
+                     ig_md.ipd = (bit<32>) ig_prsr_md.global_tstamp>>10; //Multiplex ipd as current time
+                     Update_last_pkt_timestamp_table.apply();
+                     Update_min_ipd_table.apply();
+-                    
++
+                     if (ig_md.total_pkts==2){
+                         ig_md.pkt_size_avg = ig_md.total_bytes>>1;
+                         //ig_md.pkt_length_power_sum = ig_md.pkt_length_power_sum>>1;
+@@ -714,20 +764,36 @@
+                             ig_dprsr_md.digest_type = 2;  //digest
+                         }
+                     }
++                }   // if result<50
++                }   // owner
++                else {
++                    if (ig_md.act == ACT_NEW) {
++                        Init_bin1_table.apply();
++                        Init_bin2_table.apply();
++                        Init_total_pkts_table.apply();
++                        Init_total_bytes_table.apply();
++                        Init_min_pkt_length_table.apply();
++                        Init_max_pkt_length_table.apply();
++                        Init_pkt_length_power_sum_table.apply();
++                        ig_md.ipd = (bit<32>) ig_prsr_md.global_tstamp>>10;//us
++                        Init_last_pkt_timestamp_table.apply();
++                        Init_min_ipd_table.apply();
++                        ig_tm_md.ucast_egress_port = recirculate_port; // claim tag + result in the recirculated pass
++                    }
++                    ig_md.result = 0;   // newcomer (taken, refused or short): per-packet verdict
+                 }
+-            }
+-        }
+-            
+-        }
++            }       // Flow_result miss
++        }           // not recirculated
+         if(ig_md.result==0){
+             Pkt_Tree.apply();
+         }
+ 
+         Treatment.apply();
+-        
++
+         // debug
+         hdr.ipv4.ttl = ig_md.result; //as log
+-        hdr.ethernet.dst_addr = 0; //for filter
++        // D4c: carry the chosen way to the recirculated pass (original: dst_addr = 0 "for filter").
++        hdr.ethernet.dst_addr = (bit<48>) ig_md.way;
+         ig_tm_md.bypass_egress = 1;
+         if(hdr.ipv4.src_addr==0){
+             ig_dprsr_md.drop_ctl = 1;
+@@ -742,4 +808,4 @@
+          EmptyEgress(),
+          EmptyEgressDeparser()) pipe;
+ 
+-Switch(pipe) main;
+\ No newline at end of file
++Switch(pipe) main;
+--- src_base/headers.p4	2026-09-24 09:36:20.730858903 -0400
++++ src_pb/headers.p4	2026-09-24 09:53:31.839788888 -0400
+@@ -37,6 +37,20 @@
+ 
+ #define timeout_thres 256 //timeout threshold
+ 
++// ---- D4c (P-b): two ways of Way_Table_Size identity slots each ----
++#define Way_Table_Size 32768
++#define Way_Index_Size 15
++// Probe return = SALU predicate, one-hot bit {recent,own}. ASSUMED encoding
++// (bit index = cmphi*2 + cmplo), not verified on the model or the switch.
++#define P_IDLE        8w1   // !own, !recent
++#define P_OWN         8w2   //  own, !recent
++#define P_RECENT      8w4   // !own,  recent
++#define P_OWN_RECENT  8w8   //  own,  recent
++#define ACT_NONE  8w0   // newcomer refused / short / memo: per-packet fallback
++#define ACT_OWN   8w1   // packet of the stored flow
++#define ACT_NEW   8w2   // takeover: init features, recirculate to claim
++#define CLAIMED   16w0x100  // bit 8 of the per-way result register: slot has been claimed at least once
++
+ 
+ // The actual numeric value
+ //  * is not important, it just needs to be consistent between what it set in the
+@@ -179,6 +193,12 @@
+     // Add more headers here.
+ }
+ 
++// D4c pair register cell: lo = last-seen time, hi = 32-bit flow tag.
++struct id_pair_t {
++    bit<32> lo;
++    bit<32> hi;
++}
++
+ struct empty_header_t {}
+ 
+ struct empty_metadata_t {}
+@@ -189,6 +209,16 @@
+     bit<32> flow_hash;
+     bit<32> flow_hash1;
+     bit<Register_Index_Size> flow_index;
++
++    // ---- D4c (P-b) additions ----
++    bit<32> flow_hash2;          // second, independently keyed hash (table B index only)
++    bit<Register_Index_Size> slot; // chosen slot for the shared feature registers = way ++ idx
++    bit<8> st_a;                 // probe code of way A (ST_OWN / ST_RECENT / ST_IDLE)
++    bit<8> st_b;
++    bit<16> res_a;               // way-A result register: [8] claimed, [7:0] result
++    bit<16> res_b;
++    bit<8> way;                  // 0 = A, 1 = B; carried to the recirculated pass in ethernet.dst_addr
++    bit<8> act;                  // ACT_NONE / ACT_OWN / ACT_NEW
+     
+     bit<16> total_pkts;
+     bit<32> total_bytes;

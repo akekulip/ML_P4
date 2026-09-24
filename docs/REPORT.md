@@ -58,7 +58,7 @@ NetBeacon-style in-network classifiers give their accurate per-flow model only t
 - *Rent on top of D4 (exploratory, addendum 3, MAWI primary day only, 10 draws).* D4 on the fixed clock of D1 (D4d1) raises recovery at 10% load to 0.87 (D4c 0.77) and adding age-only rent eviction (D4age) to 0.91, both with no-attack cost that passes M1; at 32,768 slots with a fixed 6,554 holders D4age reaches 0.63 against D4c's 0.44. At 16,384 and 8,192 slots D4age does not help (−0.34 against −0.33, and −0.89 against −0.78), so under the pre-registered rule it is **not shown to be helpful**; rent does not repair D4 when the attacker holds a large share of the table. Two predictions failed: D4d1 was expected to be worse than D4c under attack (on PeerRush D1's clock was worse; on MAWI it is better), and D4age was expected to help at 8,192 slots but not at 65,536 (the reverse happened). These arms were not run on PeerRush, where D1's clock hurt, so no claim is made about them beyond MAWI.
 - *Second-hash independence* passes on all three tuple sets (joint collision rate over the product of marginals 0.99 to 1.02; `docs/results_g6_hash_check.md`).
 
-**Deployability.** Not shown. A paper analysis finds that a full two-table split needs about 25 stateful ALUs against 13 and about 2 to 3 more ingress stages on a design that already uses 12; a reduced variant (split only the identity registers, pack the tag with the last-seen time) might fit, and NetBeacon's egress is empty, but nothing has been compiled (`docs/lit/overnight_p4_feasibility.md`, `docs/sde_validation_request.md`).
+**Deployability (offline compile only).** D4c, in the variant that splits only the identity registers per way (`p4/dgrade_d4c/`), compiles with the local SDE 9.13.1 compiler in 12 stages with 0 errors, at +1 stateful ALU, +5 SRAM blocks, +58 hash bits and +3 hash-distribution units over unmodified NetBeacon; a doubled-table NetBeacon (131,072 slots) does not compile (15 stages), so doubling is not an alternative on this hardware (`docs/results_d4c_compile.md`). The compile does not run the design: the 9.13.2 toolchain, the software model and the chip are untested, and the compiled P4 differs from the emulator in ways that matter (recirculation delay and a both-ways-owned state, 17-bit tags in way A, the wrapped clock, and an XOR-fold symmetric hash whose aliasing touches 0.01 to 0.29% of tuples). The earlier paper analysis that a full two-table split does not fit still stands (`docs/lit/overnight_p4_feasibility.md`).
 
 ### 3.4 Detectability of the fill attack (H3, re-analysed with observed alarm rates)
 
@@ -76,7 +76,7 @@ Downgrading half of the benign long flows needs about 82 to 83% nominal holder l
 
 ## 5. Not done
 
-- No switch validation: the SDE software-model diff and compile-only stage-fit checks (D1, D2, D4) need approval (`docs/sde_validation_request.md`). The emulator's hash symmetry assumption is unverified against the chip.
+- No switch validation: the compile on the switch host with SDE 9.13.2 and the software-model diff need approval (`docs/sde_validation_request.md`). The offline 9.13.1 compile of D4c exists (3.3); the emulator still assumes instantaneous recirculation and a sorted-tuple hash.
 - No adaptive, probing or hash-searching attacker; targeted pilot on one day only.
 - G3 (evasion, H4) is blocked on the CICIoT2023 attack folders; the retrained NetBeacon is not written. The Oracle-V ceiling is not run.
 - D4d1 and D4age were not run on PeerRush, where D1's clock is harmful.
